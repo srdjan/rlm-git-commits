@@ -2,7 +2,7 @@
 
 <img src="assets/gitlogs.jpg" width="700" alt="Git Commit Logs - Structural Data Systems">
 
-Turn your git history into a queryable agent memory layer without adding any external infrastructure.
+A complete system for turning your git history into a queryable agent memory layer without adding any external infrastructure. This repository provides two complementary skills: one for writing structured commits, and one for querying them to reconstruct context.
 
 ## Why This Exists
 
@@ -41,27 +41,40 @@ The second commit is machine-queryable. An agent can search for all `enable-capa
 
 ### Prerequisites
 
->The validation and parsing scripts require [Deno](https://deno.land). The skill
->itself (SKILL.md and the reference docs) works without Deno - it just guides
->how Claude writes commit messages. Deno is only needed if you want the CLI
->tools: `deno task validate`, `deno task parse`, and `deno task hook:install`.
+>The validation and parsing scripts require [Deno](https://deno.land). The skills
+>themselves (SKILL.md files and reference docs) work without Deno - they just guide
+>how Claude writes and queries commit messages. Deno is only needed if you want the
+>CLI tools: `deno task validate`, `deno task parse`, and `deno task hook:install`.
+
+### The Two Skills
+
+This system has two complementary skills:
+
+1. **[structured-git-commits](skills/structured-git-commits/SKILL.md)** - Write commits that serve as agent memory with structured trailers, controlled vocabulary, and decision records
+2. **[git-memory-query](skills/git-memory-query/SKILL.md)** - Query commit history to reconstruct context, understand past decisions, and avoid repeating work
+
+Both skills work independently, but together they create a zero-infrastructure agent memory layer. The first skill ensures commits are machine-parseable, the second skill teaches agents when and how to query them.
 
 ### For Developers
 
-When committing code, follow the format in [references/commit-format.md](references/commit-format.md):
+When committing code, follow the format in [references/commit-format.md](skills/structured-git-commits/references/commit-format.md):
 
 1. Write a conventional commits subject line: `type(scope): description`
 2. Add a body explaining what and why
 3. Include required trailers: `Intent:` and `Scope:`
 4. Record alternatives you considered: `Decided-Against:`
 
-The intent must be one of eight values from the [controlled vocabulary](references/intent-taxonomy.md): `enable-capability`, `fix-defect`, `improve-quality`, `restructure`, `configure-infra`, `document`, `explore`, or `resolve-blocker`.
+The intent must be one of eight values from the [controlled vocabulary](skills/structured-git-commits/references/intent-taxonomy.md): `enable-capability`, `fix-defect`, `improve-quality`, `restructure`, `configure-infra`, `document`, `explore`, or `resolve-blocker`.
 
 ### For AI Agents
 
-This is a Claude Code skill. When installed globally at `~/.claude/skills/structured-git-commits/`, Claude will automatically use this format when creating commits during coding sessions.
+These are Claude Code skills. When installed globally at `~/.claude/skills/`, Claude will automatically:
+- Use the structured format when creating commits (via structured-git-commits skill)
+- Know when and how to query commit history for context (via git-memory-query skill)
 
-To reconstruct context from commit history:
+For detailed guidance on querying commit history, see [skills/git-memory-query/SKILL.md](skills/git-memory-query/SKILL.md).
+
+Quick reference for reconstructing context from commit history:
 
 ```bash
 # Find all commits from a specific session
@@ -96,7 +109,7 @@ Every commit must include exactly one intent from this vocabulary:
 | `explore` | Spike, prototype, hypothesis validation |
 | `resolve-blocker` | Unblocking a dependent task or workflow |
 
-See [references/intent-taxonomy.md](references/intent-taxonomy.md) for detailed definitions and usage guidance.
+See [references/intent-taxonomy.md](skills/structured-git-commits/references/intent-taxonomy.md) for detailed definitions and usage guidance.
 
 ## Trailer Reference
 
@@ -123,7 +136,7 @@ Without this, the next agent working in the same area will waste time re-evaluat
 
 ## Examples
 
-See [SKILL.md](SKILL.md) for complete examples covering:
+See [skills/structured-git-commits/SKILL.md](skills/structured-git-commits/SKILL.md) for complete examples covering:
 - Simple feature additions
 - Bug fixes with decision context
 - Architectural refactors
@@ -143,14 +156,19 @@ that changes are easy to reason about.
 
 ### Global Installation (All Projects)
 
-Copy this skill to your Claude skills directory:
+Install one or both skills to your Claude skills directory:
 
 ```bash
-mkdir -p ~/.claude/skills/structured-git-commits
-cp -r . ~/.claude/skills/structured-git-commits/
+# Install both skills (recommended)
+cp -r skills/* ~/.claude/skills/
+
+# Or install individually
+mkdir -p ~/.claude/skills
+cp -r skills/structured-git-commits ~/.claude/skills/
+cp -r skills/git-memory-query ~/.claude/skills/
 ```
 
-Claude Code will now use this format automatically when creating commits.
+Claude Code will now use the structured commit format automatically and know when to query git history for context.
 
 ### Git Commit-Msg Hook
 
