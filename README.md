@@ -37,6 +37,13 @@ The second commit is machine-queryable. An agent can search for all `enable-capa
 
 ## Quick Start
 
+### Prerequisites
+
+>The validation and parsing scripts require [Deno](https://deno.land). The skill
+>itself (SKILL.md and the reference docs) works without Deno - it just guides
+>how Claude writes commit messages. Deno is only needed if you want the CLI
+>tools: `deno task validate`, `deno task parse`, and `deno task hook:install`.
+
 ### For Developers
 
 When committing code, follow the format in [references/commit-format.md](references/commit-format.md):
@@ -120,13 +127,6 @@ See [SKILL.md](SKILL.md) for complete examples covering:
 - Architectural refactors
 - Exploratory spikes
 - Infrastructure configuration
-
-## Prerequisites
-
-The validation and parsing scripts require [Deno](https://deno.land). The skill
-itself (SKILL.md and the reference docs) works without Deno - it just guides
-how Claude writes commit messages. Deno is only needed if you want the CLI
-tools: `deno task validate`, `deno task parse`, and `deno task hook:install`.
 
 ## Customization
 
