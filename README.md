@@ -1,5 +1,7 @@
 # Structured Git Commits
 
+<img src="assets/gitlogs.jpg" width="700" alt="Git Commit Logs - Structural Data Systems">
+
 Turn your git history into a queryable agent memory layer without adding any external infrastructure.
 
 ## Why This Exists
