@@ -50,29 +50,29 @@ The second commit is machine-queryable. An agent can search for all `enable-capa
 
 This system has two complementary skills:
 
-1. **[structured-git-commits](skills/structured-git-commits/SKILL.md)** - Write commits that serve as agent memory with structured trailers, controlled vocabulary, and decision records
-2. **[git-memory-query](skills/git-memory-query/SKILL.md)** - Query commit history to reconstruct context, understand past decisions, and avoid repeating work
+1. **[git-structure-commits](skills/git-structure-commits/SKILL.md)** - Write commits that serve as agent memory with structured trailers, controlled vocabulary, and decision records
+2. **[git-query-commits](skills/git-query-commits/SKILL.md)** - Query commit history to reconstruct context, understand past decisions, and avoid repeating work
 
 Both skills work independently, but together they create a zero-infrastructure agent memory layer. The first skill ensures commits are machine-parseable, the second skill teaches agents when and how to query them.
 
 ### For Developers
 
-When committing code, follow the format in [references/commit-format.md](skills/structured-git-commits/references/commit-format.md):
+When committing code, follow the format in [references/commit-format.md](skills/git-structure-commits/references/commit-format.md):
 
 1. Write a conventional commits subject line: `type(scope): description`
 2. Add a body explaining what and why
 3. Include required trailers: `Intent:` and `Scope:`
 4. Record alternatives you considered: `Decided-Against:`
 
-The intent must be one of eight values from the [controlled vocabulary](skills/structured-git-commits/references/intent-taxonomy.md): `enable-capability`, `fix-defect`, `improve-quality`, `restructure`, `configure-infra`, `document`, `explore`, or `resolve-blocker`.
+The intent must be one of eight values from the [controlled vocabulary](skills/git-structure-commits/references/intent-taxonomy.md): `enable-capability`, `fix-defect`, `improve-quality`, `restructure`, `configure-infra`, `document`, `explore`, or `resolve-blocker`.
 
 ### For AI Agents
 
 These are Claude Code skills. When installed globally at `~/.claude/skills/`, Claude will automatically:
-- Use the structured format when creating commits (via structured-git-commits skill)
-- Know when and how to query commit history for context (via git-memory-query skill)
+- Use the structured format when creating commits (via git-structure-commits skill)
+- Know when and how to query commit history for context (via git-query-commits skill)
 
-For detailed guidance on querying commit history, see [skills/git-memory-query/SKILL.md](skills/git-memory-query/SKILL.md).
+For detailed guidance on querying commit history, see [skills/git-query-commits/SKILL.md](skills/git-query-commits/SKILL.md).
 
 Quick reference for reconstructing context from commit history:
 
@@ -109,7 +109,7 @@ Every commit must include exactly one intent from this vocabulary:
 | `explore` | Spike, prototype, hypothesis validation |
 | `resolve-blocker` | Unblocking a dependent task or workflow |
 
-See [references/intent-taxonomy.md](skills/structured-git-commits/references/intent-taxonomy.md) for detailed definitions and usage guidance.
+See [references/intent-taxonomy.md](skills/git-structure-commits/references/intent-taxonomy.md) for detailed definitions and usage guidance.
 
 ## Trailer Reference
 
@@ -136,7 +136,7 @@ Without this, the next agent working in the same area will waste time re-evaluat
 
 ## Examples
 
-See [skills/structured-git-commits/SKILL.md](skills/structured-git-commits/SKILL.md) for complete examples covering:
+See [skills/git-structure-commits/SKILL.md](skills/git-structure-commits/SKILL.md) for complete examples covering:
 - Simple feature additions
 - Bug fixes with decision context
 - Architectural refactors
@@ -164,8 +164,8 @@ cp -r skills/* ~/.claude/skills/
 
 # Or install individually
 mkdir -p ~/.claude/skills
-cp -r skills/structured-git-commits ~/.claude/skills/
-cp -r skills/git-memory-query ~/.claude/skills/
+cp -r skills/git-structure-commits ~/.claude/skills/
+cp -r skills/git-query-commits ~/.claude/skills/
 ```
 
 Claude Code will now use the structured commit format automatically and know when to query git history for context.

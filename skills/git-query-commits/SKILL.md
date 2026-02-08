@@ -1,5 +1,5 @@
 ---
-name: git-memory-query
+name: git-query-commits
 description: Proactively query structured git commit history to reconstruct context, understand past decisions, and avoid repeating work
 ---
 
@@ -9,7 +9,7 @@ description: Proactively query structured git commit history to reconstruct cont
 
 Git history is the most reliable source of truth about why code exists in its current form. This skill guides agents to proactively query commit history before making changes, preventing wasted effort re-evaluating decisions that were already made and documented.
 
-When commits follow structured formats (especially structured-git-commits), git becomes a queryable decision database. Even without structured commits, git history remains valuable for understanding context, but structured commits enable semantic queries by intent, scope, and explicit decision records.
+When commits follow structured formats (especially git-structure-commits), git becomes a queryable decision database. Even without structured commits, git history remains valuable for understanding context, but structured commits enable semantic queries by intent, scope, and explicit decision records.
 
 ## When to Use
 
@@ -252,9 +252,9 @@ deno task parse --scope=orders/pricing --intent=improve-quality
 deno task parse --intent=configure-infra --since='1 month ago'
 ```
 
-## Integration with structured-git-commits
+## Integration with git-structure-commits
 
-This skill works with any git history, but provides maximum value when commits follow the structured-git-commits format because:
+This skill works with any git history, but provides maximum value when commits follow the git-structure-commits format because:
 
 - **Intent trailers** enable semantic filtering (find all fixes, all explorations, all infrastructure changes)
 - **Scope trailers** enable domain-level queries (filter by module or bounded context)

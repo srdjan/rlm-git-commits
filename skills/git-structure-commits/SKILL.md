@@ -1,5 +1,5 @@
 ---
-name: structured-git-commits
+name: git-structure-commits
 description: >
   Generate semantically structured git commit messages using Conventional Commits
   with typed trailers. Commits serve dual purpose: human-readable change log and
