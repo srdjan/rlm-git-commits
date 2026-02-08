@@ -121,6 +121,22 @@ See [SKILL.md](SKILL.md) for complete examples covering:
 - Exploratory spikes
 - Infrastructure configuration
 
+## Prerequisites
+
+The validation and parsing scripts require [Deno](https://deno.land). The skill
+itself (SKILL.md and the reference docs) works without Deno - it just guides
+how Claude writes commit messages. Deno is only needed if you want the CLI
+tools: `deno task validate`, `deno task parse`, and `deno task hook:install`.
+
+## Customization
+
+The format, taxonomy, and tooling are designed to be forked and adapted. The
+intent vocabulary, known trailer keys, and validation rules are all defined in
+plain TypeScript with no external dependencies. If your project needs different
+intents, additional trailers, or looser validation, edit `scripts/types.ts` and
+`scripts/lib/validator.ts` directly. The taxonomy is intentionally small so
+that changes are easy to reason about.
+
 ## Installation
 
 ### Global Installation (All Projects)
