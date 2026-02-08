@@ -12,9 +12,10 @@ A structured commit message has three sections separated by blank lines:
 <trailers>
 ```
 
-All three sections are REQUIRED for non-trivial changes. For truly minimal
-changes (typo fixes, single-line config changes), body may be omitted but
-trailers are still required.
+All three sections are strongly recommended. For truly minimal changes
+(typo fixes, single-line config changes), body may be omitted but trailers
+are always required. The blank line between body and trailers is mandatory
+and enforced by the validator.
 
 ---
 
@@ -62,8 +63,8 @@ names matching your project's module structure.
 
 ## Body
 
-- Explain WHAT changed and WHY — not HOW (the diff shows how)
-- Wrap lines at 72 characters
+- Explain WHAT changed and WHY - not HOW (the diff shows how)
+- Wrap lines at 72-80 characters for terminal readability
 - Use present tense
 - May include bullet points for multi-aspect changes (use `-` prefix)
 - Separate multiple paragraphs with blank lines
@@ -111,6 +112,42 @@ Guidelines:
 - Be consistent across the project — establish scope vocabulary early
 - Cross-cutting concerns use the domain they primarily serve
 
+### Header Scope vs Trailer Scope
+
+The commit format has scope in two places, serving different purposes:
+
+**Header scope** `feat(auth): ...` is the technical location in the
+codebase. It is optimized for `git log --oneline` scanning and answers
+"where in the repo?" It is a single value matching your directory or
+module structure.
+
+**Trailer Scope** `Scope: auth/registration, identity/agent` captures
+domain and business area impact. It is optimized for semantic queries
+and agent filtering, answering "what capabilities are affected?" It
+accepts comma-separated values using domain vocabulary.
+
+When they align (single-domain change):
+```
+feat(auth): add passkey registration
+
+Intent: enable-capability
+Scope: auth/registration
+```
+
+When they diverge (cross-cutting change):
+```
+refactor(orders): extract pricing engine from order aggregate
+
+Intent: restructure
+Scope: orders/pricing, orders/aggregate, quotes/pricing
+```
+Here the header scope is the primary code location (`orders`) while the
+trailer lists all affected domain areas.
+
+When both are the same, accept the redundancy. The header scope keeps
+`git log --oneline` readable; the trailer scope enables structured
+queries. Both are valuable.
+
 ### Optional Trailers
 
 #### Decided-Against
@@ -131,8 +168,16 @@ Decided-Against: Redis pub/sub (no persistence guarantee)
 Decided-Against: Kafka (operational overhead disproportionate to scale)
 ```
 
-Format: The approach name, followed by the rejection reason in parentheses.
-Keep both parts concise — this is a signpost, not an ADR.
+Format: `<noun-phrase approach> (<concise reason clause>)`
+
+```
+Good:  Redis pub/sub (no persistence guarantee)
+Good:  Kafka (operational overhead disproportionate to scale)
+Bad:   "We decided not to use Redis because..." (too verbose)
+Bad:   Redis (missing reason - approach alone isn't useful)
+```
+
+Keep both parts concise - this is a signpost, not an ADR.
 
 #### Session
 
@@ -222,10 +267,12 @@ A well-formed structured commit satisfies:
 
 1. Header matches `^(feat|fix|refactor|perf|docs|test|build|ci|chore|revert)(\(.+\))?: .+$`
 2. Header length ≤ 72 characters
-3. Body present (may be omitted for trivial changes)
-4. `Intent:` trailer present with valid taxonomy value
-5. `Scope:` trailer present with at least one `domain/module` path
-6. No more than 3 scope entries (split signal)
-7. Subject line uses imperative mood (heuristic: no `-ed`, `-ing` suffixes)
-8. `Context:` value is valid JSON if present
-9. `Session:` matches `\d{4}-\d{2}-\d{2}/.+` if present
+3. Body strongly recommended (may be omitted for trivial changes)
+4. Blank line separates body from trailers (mandatory)
+5. `Intent:` trailer present with valid taxonomy value
+6. `Scope:` trailer present with at least one `domain/module` path
+7. Scope entries use `domain/module` format (warning if no `/`)
+8. No more than 3 scope entries (split signal)
+9. Subject line uses imperative mood (heuristic: no `-ed`, `-ing` suffixes)
+10. `Context:` value is valid JSON if present
+11. `Session:` matches `\d{4}-\d{2}-\d{2}/.+` if present

@@ -220,6 +220,52 @@ When two intents seem to fit, use these tiebreakers:
 | `explore` vs `enable-capability` | `explore` | The code might be thrown away |
 | `configure-infra` vs `enable-capability` | `enable-capability` | End users are affected |
 
+## Common Edge Cases
+
+These six scenarios cause the most hesitation. The existing taxonomy
+handles all of them; the guidance below clarifies which intent to use.
+
+### Reverts
+
+Choose intent based on *why* you are reverting, not the fact that it is
+a revert. Reverting a buggy feature = `fix-defect`. Reverting to unblock
+a deploy = `resolve-blocker`. Reverting a failed experiment =
+`explore`. Use the `revert` type but let the intent reflect motivation.
+
+### Feature Removal / Deprecation
+
+Use `improve-quality`. Removing dead code or deprecated features reduces
+maintenance burden and attack surface. If the removal affects downstream
+consumers, add the `Breaking:` trailer.
+
+### Security Patches
+
+Use `fix-defect`. Vulnerabilities are defects against security
+requirements, even when the code "works as written." The bug is that a
+security invariant is violated.
+
+### Data Migrations
+
+Intent matches the migration's purpose: enabling a new feature =
+`enable-capability`, changing data architecture = `restructure`, fixing
+data inconsistency = `fix-defect`. The migration mechanism does not
+determine the intent; the business reason does.
+
+### Test-Only Commits
+
+Tests shipped with the feature use the feature's intent. Tests
+backfilled later (coverage gaps, regression tests for old bugs) use
+`improve-quality`.
+
+### Dependency Updates
+
+Routine version bumps = `configure-infra`. Security patches in
+dependencies = `fix-defect`. Upgrades that enable new API usage = use
+the intent of the feature consuming the new API (usually
+`enable-capability` or `resolve-blocker`).
+
+---
+
 ## Extending the Taxonomy
 
 Resist the urge to add new intents. The value of a controlled vocabulary

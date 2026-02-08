@@ -70,6 +70,8 @@ git log -1 --format='%(trailers:key=Intent,valueonly)' <commit-hash>
 
 A Deno utility for richer parsing is available at [scripts/parse-commits.ts](scripts/parse-commits.ts).
 
+Run it with `deno task parse` (see [deno.json](deno.json) for all tasks).
+
 ## Intent Taxonomy
 
 Every commit must include exactly one intent from this vocabulary:
@@ -131,6 +133,52 @@ cp -r . ~/.claude/skills/structured-git-commits/
 ```
 
 Claude Code will now use this format automatically when creating commits.
+
+### Git Commit-Msg Hook
+
+Install the validation hook to enforce the format on every commit:
+
+```bash
+# Local (current repo only)
+deno task hook:install
+
+# Global (all repos)
+deno task hook:install --global
+
+# Remove
+deno task hook:install --uninstall
+```
+
+The hook validates commit messages and rejects those with errors (missing Intent, invalid format, etc.) while allowing warnings to pass.
+
+### Commit Template
+
+Install the commit template to get format guidance in your editor:
+
+```bash
+git config commit.template path/to/templates/.gitmessage
+```
+
+### Session Auto-Population
+
+To avoid manually typing Session IDs across related commits, set an
+environment variable and use a prepare-commit-msg hook:
+
+```bash
+export STRUCTURED_GIT_SESSION="2025-02-08/my-feature"
+```
+
+Add a prepare-commit-msg hook that auto-fills the trailer:
+
+```bash
+#!/bin/sh
+if [ -n "$STRUCTURED_GIT_SESSION" ]; then
+  if ! grep -q "^Session:" "$1"; then
+    echo "" >> "$1"
+    echo "Session: $STRUCTURED_GIT_SESSION" >> "$1"
+  fi
+fi
+```
 
 ### Project-Specific Installation
 

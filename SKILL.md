@@ -64,7 +64,9 @@ definitions and usage guidance: `references/intent-taxonomy.md`
 
 1. **Intent** — REQUIRED. Exactly one value from the taxonomy.
 2. **Scope** — REQUIRED. Comma-separated `domain/module` paths. Use the same
-   vocabulary as your project's directory structure or domain model.
+   vocabulary as your project's directory structure or domain model. The Scope
+   trailer provides richer domain-level filtering than the header's parenthetical
+   scope, which is optimized for log readability.
 3. **Decided-Against** — Include whenever a non-trivial alternative was
    considered and rejected. This is the highest-value trailer for agent memory.
    Format: `<approach> (<reason>)` or multiple on separate trailers.
@@ -94,7 +96,11 @@ When given a diff (or after making changes), follow this process:
 6. **List the Scope** — Domain paths affected. Be specific enough for filtering
    but not so granular that every file is listed.
 7. **Record decisions** — If you considered alternatives, add `Decided-Against`
-   trailers. This is the most valuable information for future agents.
+   trailers. This is the most valuable information for future agents. If you
+   evaluated alternatives during implementation, record them immediately in a
+   scratch note. Do not rely on memory at commit time. Format each entry as
+   `<approach> (<reason>)` - the approach as a noun phrase, the reason as a
+   concise clause in parentheses.
 
 ### From a Description
 
@@ -146,7 +152,24 @@ git log -50 --format='%(trailers:key=Intent,valueonly)' | sort | uniq -c | sort 
 ```
 
 A Deno parsing utility is available at `scripts/parse-commits.ts` for
-richer queries and structured output.
+richer queries and structured output:
+
+```bash
+# What was last done in module X?
+deno task parse --scope=auth --limit=1
+
+# Did anyone try approach Y before?
+deno task parse --decided-against=redis
+
+# What blockers have we hit?
+deno task parse --intent=resolve-blocker
+
+# What's being explored? (with full body for findings)
+deno task parse --intent=explore --with-body
+
+# All decisions in a specific session
+deno task parse --session=2025-02-08/passkey-lib --decisions-only
+```
 
 ## Examples
 
