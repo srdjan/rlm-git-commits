@@ -1,27 +1,42 @@
 /**
  * Git Memory Context - UserPromptSubmit Hook
  *
- * Produces a compact summary of recent git history context, injected
- * automatically before every Claude prompt via the UserPromptSubmit hook.
+ * Produces a compact summary of git history context, injected automatically
+ * before every Claude prompt via the UserPromptSubmit hook.
  *
- * Provides a passive floor of always-available context: recent commits,
- * recent decided-against entries, and current session info. Does not
- * analyze the user's prompt - always produces the same deterministic dump.
+ * Three modes:
+ *   - llm-enhanced: uses a local LLM (Ollama) for smart prompt analysis,
+ *     recursive follow-up queries, and context summarization
+ *   - prompt-aware: keyword-based scope/intent extraction from the prompt
+ *   - recency: falls back to the N most recent commits when no signals match
  *
  * Design:
- *   - Primary path: loads trailer index via loadIndex() (pure file I/O)
+ *   - LLM path: loads RLM config, analyzes prompt with LLM, generates
+ *     follow-up queries, merges results, optionally summarizes. Falls back
+ *     to keyword path on any LLM failure.
+ *   - Primary path: loads trailer index via loadIndex() (pure file I/O),
+ *     matches prompt signals against index scope keys
  *   - Fallback path: runs git log + parseCommitBlock for recent commits
- *   - Target: completes in under 500ms
  *   - Exits 0 with empty string on any error (never blocks the user)
  *
  * Usage:
- *   deno run --allow-run --allow-read --allow-env scripts/git-memory-context.ts
+ *   deno run --allow-run --allow-read --allow-env --allow-net scripts/git-memory-context.ts
  */
 
 import type { IndexedCommit, TrailerIndex } from "./types.ts";
 import { Result } from "./types.ts";
 import { loadIndex } from "./build-trailer-index.ts";
 import { parseCommitBlock } from "./lib/parser.ts";
+import { extractPromptSignals, type PromptSignals } from "./lib/prompt-analyzer.ts";
+import { scopeMatches, wordBoundaryMatch } from "./lib/matching.ts";
+import { formatWorkingMemory, loadWorkingMemory } from "./lib/working-memory.ts";
+import { loadRlmConfig } from "./lib/rlm-config.ts";
+import {
+  analyzePromptWithLlm,
+  generateFollowUpQueries,
+  summarizeContext,
+  type LlmPromptSignals,
+} from "./lib/rlm-subcalls.ts";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -29,6 +44,34 @@ import { parseCommitBlock } from "./lib/parser.ts";
 
 const MAX_RECENT_COMMITS = 10;
 const MAX_DECISIONS = 20;
+const MAX_PROMPT_AWARE_COMMITS = 15;
+const MAX_PROMPT_AWARE_DECISIONS = 10;
+
+// ---------------------------------------------------------------------------
+// Stdin Reading
+// ---------------------------------------------------------------------------
+
+const readPrompt = async (): Promise<string> => {
+  try {
+    if (Deno.stdin.isTerminal()) return "";
+    const buf = new Uint8Array(65536);
+    const n = await Deno.stdin.read(buf);
+    if (n === null) return "";
+    const text = new TextDecoder().decode(buf.subarray(0, n));
+    const parsed = JSON.parse(text);
+    return typeof parsed?.prompt === "string" ? parsed.prompt : "";
+  } catch {
+    // Drain remaining stdin on parse error
+    try {
+      if (!Deno.stdin.isTerminal()) {
+        await Deno.stdin.readable.cancel();
+      }
+    } catch {
+      // ignore
+    }
+    return "";
+  }
+};
 
 // ---------------------------------------------------------------------------
 // Git Fallback
@@ -66,6 +109,7 @@ interface DecisionEntry {
 }
 
 interface ContextData {
+  readonly mode: "prompt-aware" | "recency" | "llm-enhanced";
   readonly recentCommits: readonly {
     readonly hash: string;
     readonly subject: string;
@@ -73,10 +117,104 @@ interface ContextData {
   }[];
   readonly decisions: readonly DecisionEntry[];
   readonly session: { readonly id: string; readonly commitCount: number } | null;
+  readonly summary?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Prompt-Aware Extraction from Index
+// ---------------------------------------------------------------------------
+
+const extractRelevantFromIndex = (
+  index: TrailerIndex,
+  signals: PromptSignals,
+): ContextData | null => {
+  const hasSignals = signals.scopeHints.length > 0 ||
+    signals.intentHints.length > 0 ||
+    signals.keywords.length > 0;
+
+  if (!hasSignals) return null;
+
+  // Collect candidate hashes from scope matches
+  const candidateHashes = new Set<string>();
+
+  for (const scopeHint of signals.scopeHints) {
+    for (const [scopeKey, hashes] of Object.entries(index.byScope)) {
+      if (scopeMatches(scopeKey, scopeHint)) {
+        for (const h of hashes) candidateHashes.add(h);
+      }
+    }
+  }
+
+  // Collect candidate hashes from intent matches
+  for (const intent of signals.intentHints) {
+    const hashes = index.byIntent[intent];
+    if (hashes) {
+      for (const h of hashes) candidateHashes.add(h);
+    }
+  }
+
+  // If we got no candidates from scope/intent, fall back
+  if (candidateHashes.size === 0) return null;
+
+  // Resolve to IndexedCommit objects, sort by date descending
+  const commits: IndexedCommit[] = [];
+  for (const hash of candidateHashes) {
+    const commit = index.commits[hash];
+    if (commit) commits.push(commit);
+  }
+  commits.sort((a, b) => b.date.localeCompare(a.date));
+
+  const recentCommits = commits
+    .slice(0, MAX_PROMPT_AWARE_COMMITS)
+    .map((c) => ({
+      hash: c.hash,
+      subject: c.subject,
+      scope: c.scope,
+    }));
+
+  // Collect decisions relevant to the prompt: scope-matched + keyword-matched
+  const decisions: DecisionEntry[] = [];
+  for (const hash of index.withDecidedAgainst) {
+    if (decisions.length >= MAX_PROMPT_AWARE_DECISIONS) break;
+    const commit = index.commits[hash];
+    if (!commit) continue;
+
+    // Check if this decision is in a relevant scope
+    const scopeRelevant = signals.scopeHints.some((hint) =>
+      commit.scope.some((s) => scopeMatches(s, hint))
+    );
+
+    for (const text of commit.decidedAgainst) {
+      if (decisions.length >= MAX_PROMPT_AWARE_DECISIONS) break;
+
+      // Include if scope-relevant or keyword matches the decision text
+      const keywordRelevant = signals.keywords.some((kw) =>
+        wordBoundaryMatch(text, kw)
+      );
+
+      if (scopeRelevant || keywordRelevant) {
+        decisions.push({ scope: commit.scope, text });
+      }
+    }
+  }
+
+  const sessionId = Deno.env.get("STRUCTURED_GIT_SESSION") ?? null;
+  let session: ContextData["session"] = null;
+  if (sessionId && index.bySession[sessionId]) {
+    session = {
+      id: sessionId,
+      commitCount: index.bySession[sessionId].length,
+    };
+  }
+
+  return { mode: "prompt-aware", recentCommits, decisions, session };
+};
+
+// ---------------------------------------------------------------------------
+// Recency Extraction from Index (original behavior)
+// ---------------------------------------------------------------------------
+
 const extractFromIndex = (index: TrailerIndex): ContextData => {
-  // Recent commits: sort by date descending, take first N
   const allCommits = Object.values(index.commits) as IndexedCommit[];
   const sorted = allCommits
     .sort((a, b) => b.date.localeCompare(a.date))
@@ -88,7 +226,6 @@ const extractFromIndex = (index: TrailerIndex): ContextData => {
     scope: c.scope,
   }));
 
-  // Decisions: iterate withDecidedAgainst hashes, collect entries
   const decisions: DecisionEntry[] = [];
   for (const hash of index.withDecidedAgainst) {
     if (decisions.length >= MAX_DECISIONS) break;
@@ -100,7 +237,6 @@ const extractFromIndex = (index: TrailerIndex): ContextData => {
     }
   }
 
-  // Session: check env var
   const sessionId = Deno.env.get("STRUCTURED_GIT_SESSION") ?? null;
   let session: ContextData["session"] = null;
   if (sessionId && index.bySession[sessionId]) {
@@ -110,7 +246,7 @@ const extractFromIndex = (index: TrailerIndex): ContextData => {
     };
   }
 
-  return { recentCommits, decisions, session };
+  return { mode: "recency", recentCommits, decisions, session };
 };
 
 // ---------------------------------------------------------------------------
@@ -156,7 +292,7 @@ const extractFromGitLog = async (): Promise<Result<ContextData>> => {
     if (count > 0) session = { id: sessionId, commitCount: count };
   }
 
-  return Result.ok({ recentCommits, decisions, session });
+  return Result.ok({ mode: "recency", recentCommits, decisions, session });
 };
 
 // ---------------------------------------------------------------------------
@@ -164,29 +300,34 @@ const extractFromGitLog = async (): Promise<Result<ContextData>> => {
 // ---------------------------------------------------------------------------
 
 const formatContext = (data: ContextData): string => {
-  if (data.recentCommits.length === 0) return "";
+  if (data.recentCommits.length === 0 && !data.summary) return "";
 
   const lines: string[] = [];
 
-  // Decisions section
-  if (data.decisions.length > 0) {
-    lines.push("Recent decisions (decided-against):");
-    for (const d of data.decisions) {
-      const scopeLabel = d.scope.length > 0
-        ? `[${d.scope.join(", ")}] `
-        : "";
-      lines.push(`- ${scopeLabel}${d.text}`);
+  // LLM summary replaces the raw listing when present
+  if (data.summary) {
+    lines.push(data.summary);
+  } else {
+    // Decisions section
+    if (data.decisions.length > 0) {
+      lines.push("Recent decisions (decided-against):");
+      for (const d of data.decisions) {
+        const scopeLabel = d.scope.length > 0
+          ? `[${d.scope.join(", ")}] `
+          : "";
+        lines.push(`- ${scopeLabel}${d.text}`);
+      }
+      lines.push("");
     }
-    lines.push("");
-  }
 
-  // Recent commits section
-  lines.push("Recent commits:");
-  for (const c of data.recentCommits) {
-    const scopeSuffix = c.scope.length > 0
-      ? ` | ${c.scope.join(", ")}`
-      : "";
-    lines.push(`${c.hash.slice(0, 7)} ${c.subject}${scopeSuffix}`);
+    // Recent commits section
+    lines.push("Recent commits:");
+    for (const c of data.recentCommits) {
+      const scopeSuffix = c.scope.length > 0
+        ? ` | ${c.scope.join(", ")}`
+        : "";
+      lines.push(`${c.hash.slice(0, 7)} ${c.subject}${scopeSuffix}`);
+    }
   }
 
   // Session section
@@ -197,37 +338,265 @@ const formatContext = (data: ContextData): string => {
     );
   }
 
-  return `<git-memory-context>\n${lines.join("\n")}\n</git-memory-context>`;
+  return `<git-memory-context mode="${data.mode}">\n${lines.join("\n")}\n</git-memory-context>`;
+};
+
+// ---------------------------------------------------------------------------
+// LLM-Enhanced Path
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert LLM prompt signals to the PromptSignals format used by
+ * extractRelevantFromIndex. LLM scopes map to scopeHints, LLM intents
+ * map to intentHints, and LLM keywords map to keywords.
+ */
+const llmSignalsToPromptSignals = (llm: LlmPromptSignals): PromptSignals => ({
+  scopeHints: llm.scopes as string[],
+  intentHints: llm.intents as import("./types.ts").IntentType[],
+  keywords: llm.keywords as string[],
+});
+
+/**
+ * Build a text representation of ContextData for the LLM summarizer
+ * and follow-up query generator.
+ */
+const contextToText = (data: ContextData): string => {
+  const parts: string[] = [];
+
+  for (const c of data.recentCommits) {
+    const scopeSuffix = c.scope.length > 0 ? ` [${c.scope.join(", ")}]` : "";
+    parts.push(`${c.hash.slice(0, 7)} ${c.subject}${scopeSuffix}`);
+  }
+
+  for (const d of data.decisions) {
+    const scopeLabel = d.scope.length > 0 ? `[${d.scope.join(", ")}] ` : "";
+    parts.push(`decided-against: ${scopeLabel}${d.text}`);
+  }
+
+  return parts.join("\n");
+};
+
+/**
+ * Execute follow-up queries against the index and return additional commits
+ * not already present in the initial set.
+ */
+const executeFollowUpQueries = (
+  index: TrailerIndex,
+  queries: readonly import("./lib/rlm-subcalls.ts").FollowUpQuery[],
+  existingHashes: ReadonlySet<string>,
+): readonly IndexedCommit[] => {
+  const additional: IndexedCommit[] = [];
+  const seen = new Set(existingHashes);
+
+  for (const query of queries) {
+    // Collect hashes matching this query
+    const candidateHashes = new Set<string>();
+
+    if (query.scope) {
+      for (const [scopeKey, hashes] of Object.entries(index.byScope)) {
+        if (scopeMatches(scopeKey, query.scope)) {
+          for (const h of hashes) candidateHashes.add(h);
+        }
+      }
+    }
+
+    if (query.intent) {
+      const hashes = index.byIntent[query.intent];
+      if (hashes) {
+        if (candidateHashes.size > 0) {
+          // Intersect with scope results
+          for (const h of candidateHashes) {
+            if (!hashes.includes(h)) candidateHashes.delete(h);
+          }
+        } else {
+          for (const h of hashes) candidateHashes.add(h);
+        }
+      }
+    }
+
+    if (query.decidedAgainst) {
+      const keyword = query.decidedAgainst;
+      for (const hash of index.withDecidedAgainst) {
+        const commit = index.commits[hash];
+        if (!commit) continue;
+        if (commit.decidedAgainst.some((d) => wordBoundaryMatch(d, keyword))) {
+          candidateHashes.add(hash);
+        }
+      }
+    }
+
+    // Add only new commits
+    for (const hash of candidateHashes) {
+      if (seen.has(hash)) continue;
+      seen.add(hash);
+      const commit = index.commits[hash];
+      if (commit) additional.push(commit);
+    }
+  }
+
+  return additional;
+};
+
+/**
+ * Try the LLM-enhanced path. Returns ContextData on success, null on any
+ * LLM failure (caller should fall through to keyword path).
+ */
+const tryLlmEnhancedPath = async (
+  index: TrailerIndex,
+  prompt: string,
+  scopeKeys: readonly string[],
+): Promise<ContextData | null> => {
+  const config = await loadRlmConfig();
+  if (!config.enabled) return null;
+
+  // Step 1: LLM prompt analysis
+  const analysisResult = await analyzePromptWithLlm(config, prompt, scopeKeys);
+  if (!analysisResult.ok) return null;
+
+  const llmSignals = analysisResult.value;
+  const hasSignals = llmSignals.scopes.length > 0 ||
+    llmSignals.intents.length > 0 ||
+    llmSignals.keywords.length > 0;
+  if (!hasSignals) return null;
+
+  // Step 2: Extract from index using LLM signals
+  const signals = llmSignalsToPromptSignals(llmSignals);
+  const initialData = extractRelevantFromIndex(index, signals);
+  if (!initialData) return null;
+
+  // Step 3: Generate follow-up queries
+  const initialText = contextToText(initialData);
+  const validScopes = new Set(scopeKeys);
+  const followUpResult = await generateFollowUpQueries(
+    config,
+    prompt,
+    initialText,
+    validScopes,
+  );
+
+  // Merge follow-up results (if follow-up generation fails, use initial data)
+  let mergedCommits = [...initialData.recentCommits];
+  let mergedDecisions = [...initialData.decisions];
+
+  if (followUpResult.ok && followUpResult.value.length > 0) {
+    const existingHashes = new Set(initialData.recentCommits.map((c) => c.hash));
+    const additionalCommits = executeFollowUpQueries(
+      index,
+      followUpResult.value,
+      existingHashes,
+    );
+
+    // Add additional commits
+    for (const c of additionalCommits) {
+      mergedCommits.push({
+        hash: c.hash,
+        subject: c.subject,
+        scope: c.scope,
+      });
+    }
+
+    // Add additional decisions from follow-up decided-against queries
+    for (const query of followUpResult.value) {
+      if (!query.decidedAgainst) continue;
+      for (const hash of index.withDecidedAgainst) {
+        if (mergedDecisions.length >= MAX_PROMPT_AWARE_DECISIONS) break;
+        const commit = index.commits[hash];
+        if (!commit) continue;
+        for (const text of commit.decidedAgainst) {
+          if (mergedDecisions.length >= MAX_PROMPT_AWARE_DECISIONS) break;
+          if (wordBoundaryMatch(text, query.decidedAgainst)) {
+            const alreadyPresent = mergedDecisions.some((d) => d.text === text);
+            if (!alreadyPresent) {
+              mergedDecisions.push({ scope: commit.scope, text });
+            }
+          }
+        }
+      }
+    }
+
+    // Cap merged results
+    mergedCommits = mergedCommits.slice(0, MAX_PROMPT_AWARE_COMMITS);
+    mergedDecisions = mergedDecisions.slice(0, MAX_PROMPT_AWARE_DECISIONS);
+  }
+
+  // Step 4: Summarize context (optional, failure uses raw context)
+  const mergedData: ContextData = {
+    mode: "llm-enhanced",
+    recentCommits: mergedCommits,
+    decisions: mergedDecisions,
+    session: initialData.session,
+  };
+
+  const mergedText = contextToText(mergedData);
+  const summaryResult = await summarizeContext(config, prompt, mergedText);
+
+  if (summaryResult.ok) {
+    return { ...mergedData, summary: summaryResult.value };
+  }
+
+  return mergedData;
+};
+
+// ---------------------------------------------------------------------------
+// Working Memory Injection
+// ---------------------------------------------------------------------------
+
+const getWorkingMemoryBlock = async (): Promise<string> => {
+  const sessionId = Deno.env.get("STRUCTURED_GIT_SESSION") ?? null;
+  if (!sessionId) return "";
+
+  const result = await loadWorkingMemory(sessionId);
+  if (!result.ok || !result.value) return "";
+
+  return formatWorkingMemory(result.value);
 };
 
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
+const emitContext = async (data: ContextData): Promise<void> => {
+  const output = formatContext(data);
+  if (output) console.log(output);
+  const wmBlock = await getWorkingMemoryBlock();
+  if (wmBlock) console.log(wmBlock);
+};
+
 const main = async (): Promise<void> => {
-  // Drain stdin (hook sends JSON on stdin, but we don't use it)
-  try {
-    if (!Deno.stdin.isTerminal()) {
-      await Deno.stdin.readable.cancel();
-    }
-  } catch {
-    // Ignore stdin errors
-  }
+  // Read the user's prompt from stdin JSON
+  const prompt = await readPrompt();
 
   // Try index path first (pure file I/O, no git subprocess)
   const indexResult = await loadIndex();
   if (indexResult.ok && indexResult.value !== null) {
-    const data = extractFromIndex(indexResult.value);
-    const output = formatContext(data);
-    if (output) console.log(output);
+    const index = indexResult.value;
+    const scopeKeys = Object.keys(index.byScope);
+
+    // Try LLM-enhanced path (falls back to null on any failure)
+    const llmData = await tryLlmEnhancedPath(index, prompt, scopeKeys);
+    if (llmData) {
+      await emitContext(llmData);
+      return;
+    }
+
+    // Try keyword-based prompt-aware extraction
+    const signals = extractPromptSignals(prompt, scopeKeys);
+    const promptAwareData = extractRelevantFromIndex(index, signals);
+    if (promptAwareData) {
+      await emitContext(promptAwareData);
+      return;
+    }
+
+    // Fall back to recency mode
+    const data = extractFromIndex(index);
+    await emitContext(data);
     return;
   }
 
-  // Fallback: git log + parse
+  // Fallback: git log + parse (prompt-unaware since we lack scope keys)
   const fallbackResult = await extractFromGitLog();
   if (fallbackResult.ok) {
-    const output = formatContext(fallbackResult.value);
-    if (output) console.log(output);
+    await emitContext(fallbackResult.value);
     return;
   }
 
