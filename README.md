@@ -38,6 +38,27 @@ Session: 2025-02-08/passkey-lib
 
 The second commit is machine-queryable. An agent can search for all `enable-capability` commits, filter by scope, or find every decision made about authentication alternatives.
 
+## Install
+
+The fastest way to add the RLM system to an existing project:
+
+```bash
+# From this repository
+deno task rlm:install -- --target=/path/to/your/project
+
+# Preview what will be changed
+deno task rlm:install -- --target=/path/to/your/project --dry-run
+
+# Remove RLM from a project
+deno task rlm:install -- --target=/path/to/your/project --uninstall
+```
+
+This copies 16 script files, merges 3 Claude Code hook definitions into `.claude/settings.json`, injects 5 instruction sections into `CLAUDE.md`, and adds 5 deno tasks to `deno.json`. The target must be a git repository with `deno` available on PATH.
+
+The script is idempotent: running it again upgrades in place without duplicating entries. Use `--skip-hooks` if the target project manages `.claude/settings.json` separately.
+
+After installing, start a Claude Code session in the target project. The hooks begin injecting context automatically. For optional local LLM enhancement, run `deno task rlm:configure -- --enable --check` in the target.
+
 ## Quick Start
 
 ### Prerequisites
