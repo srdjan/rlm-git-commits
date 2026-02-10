@@ -33,7 +33,7 @@ Do NOT query history for:
 
 ## Automatic Context via Hooks
 
-Three Claude Code hooks implement the full Read-Log-Memory pattern, providing automatic context without requiring active queries.
+Three Claude Code hooks implement the RLM (Recursive Language Model) pattern, treating git history as an external environment that the LLM queries recursively rather than consuming all at once. The hooks provide automatic context without requiring active queries.
 
 **What gets injected:**
 

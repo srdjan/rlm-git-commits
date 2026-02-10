@@ -313,7 +313,7 @@ git log -50 --format='%(trailers:key=Intent,valueonly)' | sort | uniq -c | sort 
 
 ## The RLM Hook System
 
-Three Claude Code hooks implement the full Read-Log-Memory pattern. On every prompt, Claude receives a compact summary of git history context, working memory from the current session, and bridge context after queries - all without active querying.
+Three Claude Code hooks implement the RLM (Recursive Language Model) pattern - the LLM treats git history as an external environment and recursively queries it rather than consuming it all at once. On every prompt, Claude receives a compact summary of git history context, working memory from the current session, and bridge context after queries - all without active querying. Together, the three hooks form the environment-query-memory loop described in the [RLM paper](https://arxiv.org/abs/2512.24601).
 
 This creates two tiers of context:
 

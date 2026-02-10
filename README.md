@@ -3,15 +3,16 @@
   <img src="assets/gitlogs.jpg" width="400" alt="Git Commit Logs - Structural Data Systems">
 </p>
 
-A complete system for turning your git history into a queryable agent memory layer without adding any external infrastructure. This repository provides two complementary skills: one for writing structured commits, and one for querying them to reconstruct context.
+A complete system for turning your git history into a queryable agent memory layer, built on the Recursive Language Model (RLM) pattern. No external infrastructure required. This repository provides two complementary skills (writing structured commits and querying them), plus a hook system that implements RLM over your commit history: the local LLM recursively queries a trailer index, persists findings in working memory, and surfaces context before every prompt.
 
 ## Table of Contents
 
 - [Why This Exists](#why-this-exists)
 - [What You Get](#what-you-get)
+- [The RLM Pattern](#the-rlm-pattern)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
-- [Claude Code Hooks (RLM Pattern)](#claude-code-hooks-rlm-pattern)
+- [Claude Code Hooks](#claude-code-hooks)
 - [Retrofitting Existing Commits](#retrofitting-existing-commits)
 - [Intent Taxonomy](#intent-taxonomy)
 - [Trailer Reference](#trailer-reference)
@@ -54,6 +55,27 @@ Session: 2025-02-08/passkey-lib
 ```
 
 The second commit is machine-queryable. An agent can search for all `enable-capability` commits, filter by scope, or find every decision made about authentication alternatives.
+
+## The RLM Pattern
+
+The Recursive Language Model (RLM) paradigm (Zhang, Kraska, Khattab - [arXiv 2512.24601](https://arxiv.org/abs/2512.24601), Dec 2025) proposes that LLMs treat long context as an external environment rather than consuming it all at once. Instead of stuffing everything into the prompt, the LLM recursively calls itself to peek, grep, partition, and aggregate over the data - interacting with it the way a programmer uses a REPL.
+
+This system implements RLM over git commit history. The trailer index is the pre-processed environment, the local LLM (Ollama) performs recursive sub-calls to analyze prompts, generate follow-up queries, and summarize results, and working memory provides persistent state across turns - functioning as REPL variables that carry forward between interactions.
+
+### Paper Concept Mapping
+
+| RLM Paper Concept | Our Implementation |
+|---|---|
+| Environment (external data) | Git commit history + trailer index (`.git/info/trailer-index.json`) |
+| REPL variables (persistent state) | Working memory (`.git/info/working-memory.json`) |
+| Peek / Grep operations | Prompt-aware keyword matching against trailer index scope keys and intent synonyms |
+| Recursive sub-calls | LLM-enhanced follow-up queries (`analyzePromptWithLlm`, `generateFollowUpQueries`) |
+| Aggregation | Context summarization via local LLM (`summarizeContext`) |
+| Persistent state across sessions | Session summaries, consolidated at Stop hook (`.git/info/session-summary-{slug}.md`) |
+
+### Where We Diverge
+
+The implementation makes pragmatic trade-offs against the paper's general-purpose design. Recursion is shallow: the system generates at most two follow-up queries per prompt rather than allowing arbitrary depth. Operations are predefined (scope matching, intent filtering, decision archaeology) rather than allowing the LLM to generate arbitrary code in a REPL. The architecture uses dual LLMs: a local Ollama model handles the fast recursive sub-calls (prompt analysis, follow-up generation, summarization), while Claude handles the actual coding work. And the lifecycle is hook-driven - Claude Code events (UserPromptSubmit, PostToolUse, Stop) trigger the environment interactions rather than an explicit REPL loop.
 
 ## Installation
 
@@ -183,9 +205,9 @@ A Deno utility for richer parsing is available at [scripts/parse-commits.ts](scr
 
 For detailed guidance on querying commit history, see [skills/git-query-commits/SKILL.md](skills/git-query-commits/SKILL.md).
 
-## Claude Code Hooks (RLM Pattern)
+## Claude Code Hooks
 
-Three hooks implement the full Read-Log-Memory pattern, giving Claude automatic access to git history context without active querying. These are installed automatically by `deno task rlm:install`, or can be configured manually.
+Three hooks implement the RLM pattern described above, giving Claude automatic access to git history context without active querying. These are installed automatically by `deno task rlm:install`, or can be configured manually.
 
 **UserPromptSubmit** - injects git history context before every prompt. Operates in three modes:
 - *llm-enhanced*: uses a local LLM (Ollama) for smart prompt analysis, recursive follow-up queries, and context summarization

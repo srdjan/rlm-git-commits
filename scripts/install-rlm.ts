@@ -1,7 +1,7 @@
 /**
  * RLM Install Script
  *
- * Installs the Read-Log-Memory (RLM) system into a target project.
+ * Installs the RLM (Recursive Language Model) system into a target project.
  * Copies scripts, merges hooks into .claude/settings.json, injects
  * CLAUDE.md instruction sections, and adds deno.json tasks.
  *
