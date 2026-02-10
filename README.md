@@ -45,7 +45,7 @@ The second commit is machine-queryable. An agent can search for all `enable-capa
 >The validation and parsing scripts require [Deno](https://deno.land). The skills
 >themselves (SKILL.md files and reference docs) work without Deno - they just guide
 >how Claude writes and queries commit messages. Deno is only needed if you want the
->CLI tools: `deno task validate`, `deno task parse`, and `deno task hook:install`.
+>CLI tools: `deno task validate`, `deno task parse`, `deno task retrofit`, and `deno task hook:install`.
 
 ### The Two Skills
 
@@ -94,6 +94,28 @@ git log -1 --format='%(trailers:key=Intent,valueonly)' <commit-hash>
 A Deno utility for richer parsing is available at [scripts/parse-commits.ts](scripts/parse-commits.ts).
 
 Run it with `deno task parse` (see [deno.json](deno.json) for all tasks).
+
+### Retrofitting Existing Commits
+
+If you have an existing repository with unstructured commits, the retrofit utility generates structured commit messages using Claude:
+
+```bash
+# Preview what will be processed (no API calls)
+deno task retrofit -- --dry-run --limit=10
+
+# Generate structured messages for the last 20 commits
+deno task retrofit -- --limit=20 --output=retrofit-report.md
+
+# Resume a previous run (skips cached commits)
+deno task retrofit -- --resume --output=retrofit-report.md
+
+# Rewrite git history with validated messages (destructive - creates backup refs)
+deno task retrofit -- --apply
+```
+
+The utility extracts each commit's message, diff stats, and shortstat, sends them to Claude with the format spec and intent taxonomy as system context, validates the generated messages against the same rules as the commit-msg hook, and retries on validation errors. Results are cached to `.retrofit-cache.json` for resume support.
+
+The `--apply` flag rewrites history using `git filter-branch`. Only commits with zero validation errors are rewritten. Original refs are saved to `refs/original/` for recovery. Requires `ANTHROPIC_API_KEY` environment variable.
 
 ## Intent Taxonomy
 
@@ -220,6 +242,15 @@ fi
 ### Project-Specific Installation
 
 Add this repository as a git submodule or copy the files into your project's documentation. Reference the format in your CONTRIBUTING.md or development guidelines.
+
+## Performance
+
+Two optional optimizations accelerate queries as repositories grow:
+
+- **Commit-graph** (`deno task graph:write`): Writes a binary acceleration structure with changed-paths Bloom filters, speeding up path-based queries (`--path=`) by 2-30x and enabling fast ancestry checks via `--since-commit=HASH`. Does not speed up `--grep` searches.
+- **Trailer index** (`deno task index:build`): Builds an inverted index of trailer values to commit hashes at `.git/info/trailer-index.json`, making intent/scope/session/decided-against lookups O(1) instead of O(n) grep scans.
+
+Run both at once with `deno task optimize`. See [references/performance.md](skills/git-query-commits/references/performance.md) for details.
 
 ## Design Philosophy
 
