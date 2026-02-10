@@ -45,7 +45,8 @@ The second commit is machine-queryable. An agent can search for all `enable-capa
 >The validation and parsing scripts require [Deno](https://deno.land). The skills
 >themselves (SKILL.md files and reference docs) work without Deno - they just guide
 >how Claude writes and queries commit messages. Deno is only needed if you want the
->CLI tools: `deno task validate`, `deno task parse`, `deno task retrofit`, and `deno task hook:install`.
+>CLI tools: `deno task validate`, `deno task parse`, `deno task retrofit`, `deno task hook:install`,
+>`deno task rlm:configure`, and the memory utilities (`deno task memory:write`, `memory:clear`, `memory:consolidate`).
 
 ### The Two Skills
 
@@ -239,11 +240,20 @@ if [ -n "$STRUCTURED_GIT_SESSION" ]; then
 fi
 ```
 
-### Claude Code Hook (Auto-Context)
+### Claude Code Hooks (RLM Pattern)
 
-A `UserPromptSubmit` hook can inject recent git history context before every Claude prompt automatically. This implements the RLM pattern: Claude receives a compact summary of recent commits, decisions, and session info without having to actively query.
+Three hooks implement the full Read-Log-Memory pattern, giving Claude automatic access to git history context without active querying:
 
-**What it does:** On every prompt, the hook runs `scripts/git-memory-context.ts`, which loads the trailer index (or falls back to git log) and outputs a `<git-memory-context>` block that Claude sees as injected context. This includes recent decided-against entries, recent commit subjects with scopes, and current session info.
+**UserPromptSubmit** - injects git history context before every prompt. Operates in three modes:
+- *llm-enhanced*: uses a local LLM (Ollama) for smart prompt analysis, recursive follow-up queries, and context summarization
+- *prompt-aware*: keyword-based extraction of scopes and intents from the prompt, matched against the trailer index
+- *recency*: falls back to the N most recent commits when no signals match
+
+Also injects working memory (session-scoped findings, decisions, and hypotheses persisted across prompts).
+
+**PostToolUse** - bridge hook that fires after `deno task parse` queries. Surfaces related decided-against entries and sibling scopes the query did not directly ask for. When LLM mode is enabled, the heuristic output is summarized by the local model.
+
+**Stop** - consolidates working memory into a session summary when a session ends. Writes to `.git/info/session-summary-{slug}.md`.
 
 **Installation:**
 
@@ -257,7 +267,29 @@ A `UserPromptSubmit` hook can inject recent git history context before every Cla
         "hooks": [
           {
             "type": "command",
-            "command": "deno run --allow-run --allow-read --allow-env scripts/git-memory-context.ts"
+            "command": "deno run --allow-run --allow-read --allow-env --allow-net scripts/git-memory-context.ts"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "deno run --allow-run --allow-read --allow-env --allow-net scripts/git-memory-bridge.ts",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "deno run --allow-run --allow-read --allow-write --allow-env scripts/git-memory-consolidate.ts"
           }
         ]
       }
@@ -266,7 +298,7 @@ A `UserPromptSubmit` hook can inject recent git history context before every Cla
 }
 ```
 
-2. Add the `<git-memory>` instructions from `CLAUDE.md` to your project's CLAUDE.md so Claude knows how to use the injected context and when to query deeper.
+2. Add the instructions from `CLAUDE.md` (git-memory, working-memory, git-memory-bridge, memory-consolidation, rlm-local-llm sections) to your project's CLAUDE.md so Claude knows how to use the injected context.
 
 3. Verify it works by running manually:
 
@@ -275,6 +307,33 @@ deno task context
 ```
 
 This should produce a `<git-memory-context>` block with recent commits and decisions. In a live Claude Code session, this output is automatically injected before Claude processes each prompt.
+
+**Optional: Local LLM mode**
+
+Enable Ollama-powered prompt analysis and recursive sub-calls for richer context extraction:
+
+```bash
+# Enable and test connectivity
+deno task rlm:configure -- --enable --check
+
+# Disable
+deno task rlm:configure -- --disable
+```
+
+Config is stored at `.git/info/rlm-config.json` (not committed). Adds ~1-3s latency per prompt. Falls back silently to keyword mode if Ollama is unreachable.
+
+**Working memory utilities:**
+
+```bash
+# Persist a finding or decision within a session
+deno task memory:write -- --tag=finding --scope=auth --text="JWT uses sliding window"
+
+# Clear working memory
+deno task memory:clear
+
+# Generate commit trailer hints from session decisions
+deno task memory:consolidate -- --commit-hints
+```
 
 ### Project-Specific Installation
 
