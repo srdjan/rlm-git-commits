@@ -92,8 +92,6 @@ export const callLocalLlm = async (
       body: JSON.stringify(body),
     });
 
-    clearTimeout(timer);
-
     if (!response.ok) {
       const text = await response.text().catch(() => "");
       return Result.fail(
@@ -106,8 +104,6 @@ export const callLocalLlm = async (
     const json: unknown = await response.json();
     return extractResponseText(json);
   } catch (e) {
-    clearTimeout(timer);
-
     if (e instanceof DOMException && e.name === "AbortError") {
       return Result.fail(
         new Error(`LLM request timed out after ${req.timeoutMs}ms`),
@@ -117,5 +113,7 @@ export const callLocalLlm = async (
     // Connection refused, network error, etc.
     const message = e instanceof Error ? e.message : String(e);
     return Result.fail(new Error(`LLM connection failed: ${message}`));
+  } finally {
+    clearTimeout(timer);
   }
 };

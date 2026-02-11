@@ -28,7 +28,10 @@ import { createSandbox, type SandboxEnv } from "./rlm-sandbox.ts";
  * Call the local LLM. Injected to allow testing without HTTP.
  */
 export interface CallLlm {
-  (messages: readonly ChatMessage[], maxTokens: number): Promise<Result<string>>;
+  (
+    messages: readonly ChatMessage[],
+    maxTokens: number,
+  ): Promise<Result<string>>;
 }
 
 /**
@@ -100,15 +103,16 @@ export const runRepl = async (
   const budgetExhausted = (): boolean =>
     performance.now() - startTime > replConfig.timeoutBudgetMs;
 
-  const llmBudgetLeft = (): boolean =>
-    llmCallCount < replConfig.maxLlmCalls;
+  const llmBudgetLeft = (): boolean => llmCallCount < replConfig.maxLlmCalls;
 
   // Wrapper that tracks LLM call count for sub-calls from inside the sandbox
-  const trackedLlmCall = async (
+  const trackedLlmCall = (
     messages: readonly ChatMessage[],
   ): Promise<Result<string>> => {
     if (!llmBudgetLeft()) {
-      return Result.fail(new Error("LLM call budget exhausted"));
+      return Promise.resolve(
+        Result.fail(new Error("LLM call budget exhausted")),
+      );
     }
     llmCallCount++;
     return callLlm(messages, rlmConfig.maxTokens);
@@ -130,7 +134,8 @@ export const runRepl = async (
     { role: "system", content: systemPrompt },
     {
       role: "user",
-      content: `Task: ${prompt}\n\nWrite JavaScript code to find relevant context from the git history index.`,
+      content:
+        `Task: ${prompt}\n\nWrite JavaScript code to find relevant context from the git history index.`,
     },
   ];
 
@@ -179,7 +184,8 @@ export const runRepl = async (
         // Sandbox timeout or crash — tell the LLM
         conversation.push({
           role: "user",
-          content: `Execution error: ${execResult.error.message}\nTry a simpler approach or call done() with your best answer.`,
+          content:
+            `Execution error: ${execResult.error.message}\nTry a simpler approach or call done() with your best answer.`,
         });
         trace.push({
           iteration: i,
@@ -216,7 +222,9 @@ export const runRepl = async (
       if (output.error) {
         conversation.push({
           role: "user",
-          content: `Execution error: ${output.error}\n${output.stdout ? "Partial output:\n" + output.stdout : ""}Fix the error or call done() with your best answer.`,
+          content: `Execution error: ${output.error}\n${
+            output.stdout ? "Partial output:\n" + output.stdout : ""
+          }Fix the error or call done() with your best answer.`,
         });
         continue;
       }
@@ -224,7 +232,9 @@ export const runRepl = async (
       // Success — show output and ask for continuation
       conversation.push({
         role: "user",
-        content: `Output:\n${output.stdout || "(no output)"}\n\nContinue analysis or call done(answer) with your summary.`,
+        content: `Output:\n${
+          output.stdout || "(no output)"
+        }\n\nContinue analysis or call done(answer) with your summary.`,
       });
     }
 
@@ -232,11 +242,15 @@ export const runRepl = async (
     if (llmBudgetLeft() && !budgetExhausted()) {
       conversation.push({
         role: "user",
-        content: "Iteration budget exhausted. Provide your best answer as plain text (no code block).",
+        content:
+          "Iteration budget exhausted. Provide your best answer as plain text (no code block).",
       });
 
       llmCallCount++;
-      const finalResult = await callLlm(conversation, replConfig.maxOutputTokens);
+      const finalResult = await callLlm(
+        conversation,
+        replConfig.maxOutputTokens,
+      );
 
       if (finalResult.ok) {
         return Result.ok({

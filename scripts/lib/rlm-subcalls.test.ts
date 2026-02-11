@@ -6,7 +6,6 @@ import {
   buildFollowUpPrompt,
   buildSummarizePrompt,
   getEffectiveSubcallLimits,
-  type LlmPromptSignals,
   parseAnalyzeResponse,
   parseFollowUpResponse,
 } from "./rlm-subcalls.ts";
@@ -188,6 +187,13 @@ Deno.test("parseFollowUpResponse: parses wrapped JSON object", () => {
   assertEquals(result[0].intent, "fix-defect");
 });
 
+Deno.test("parseFollowUpResponse: ignores non-object query entries", () => {
+  const text = '{"queries":[{"scope":"auth"}, null]}';
+  const result = parseFollowUpResponse(text, VALID_SCOPES);
+  assertEquals(result.length, 1);
+  assertEquals(result[0].scope, "auth");
+});
+
 // ---------------------------------------------------------------------------
 // Adaptive limits
 // ---------------------------------------------------------------------------
@@ -200,6 +206,11 @@ Deno.test("getEffectiveSubcallLimits: bumps qwen3 limits", () => {
     model: "qwen3:8b",
     timeoutMs: 5000,
     maxTokens: 256,
+    replEnabled: false,
+    replMaxIterations: 6,
+    replMaxLlmCalls: 10,
+    replTimeoutBudgetMs: 15000,
+    replMaxOutputTokens: 512,
   });
 
   assertEquals(limits.timeoutMs, 20000);
@@ -214,6 +225,11 @@ Deno.test("getEffectiveSubcallLimits: preserves non-qwen model limits", () => {
     model: "gemma3:4b",
     timeoutMs: 5000,
     maxTokens: 256,
+    replEnabled: false,
+    replMaxIterations: 6,
+    replMaxLlmCalls: 10,
+    replTimeoutBudgetMs: 15000,
+    replMaxOutputTokens: 512,
   });
 
   assertEquals(limits.timeoutMs, 5000);

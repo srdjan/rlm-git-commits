@@ -44,7 +44,7 @@ import {
   type LlmPromptSignals,
   summarizeContext,
 } from "./lib/rlm-subcalls.ts";
-import { runRepl, replConfigFromRlm, type ReplEnv } from "./lib/rlm-repl.ts";
+import { replConfigFromRlm, type ReplEnv, runRepl } from "./lib/rlm-repl.ts";
 import { callLocalLlm, type ChatMessage } from "./lib/local-llm.ts";
 
 // ---------------------------------------------------------------------------
@@ -531,10 +531,10 @@ const tryReplPath = async (
   const replEnv: ReplEnv = { index, workingMemory: wm, scopeKeys };
   const replConfig = replConfigFromRlm(config);
 
-  const llmCaller = async (
+  const llmCaller = (
     messages: readonly ChatMessage[],
     maxTokens: number,
-  ) =>
+  ): Promise<Result<string>> =>
     callLocalLlm({
       endpoint: config.endpoint,
       model: config.model,
@@ -543,7 +543,8 @@ const tryReplPath = async (
       timeoutMs: config.timeoutMs,
     });
 
-  const gitLogCaller = async (args: readonly string[]) => execGitLog(args);
+  const gitLogCaller = (args: readonly string[]): Promise<Result<string>> =>
+    execGitLog(args);
 
   const replResult = await runRepl(
     config,

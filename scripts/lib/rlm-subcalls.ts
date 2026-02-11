@@ -17,6 +17,8 @@ import { INTENT_TYPES, Result } from "../types.ts";
 import type { RlmConfig } from "./rlm-config.ts";
 import { callLocalLlm, type ChatMessage } from "./local-llm.ts";
 
+const INTENT_SET = new Set<IntentType>(INTENT_TYPES);
+
 const normalizeJsonPayload = (text: string): string =>
   text
     .trim()
@@ -51,6 +53,16 @@ const parseJsonObject = (text: string): Record<string, unknown> | null => {
 
   return null;
 };
+
+const asRecord = (value: unknown): Record<string, unknown> | null => {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return null;
+};
+
+const isIntentType = (value: unknown): value is IntentType =>
+  typeof value === "string" && INTENT_SET.has(value as IntentType);
 
 export const getEffectiveSubcallLimits = (
   config: RlmConfig,
@@ -118,32 +130,26 @@ export const parseAnalyzeResponse = (
   text: string,
   validScopes: ReadonlySet<string>,
 ): LlmPromptSignals => {
-  try {
-    const data = parseJsonObject(text);
-    if (!data) return EMPTY_SIGNALS;
+  const data = parseJsonObject(text);
+  if (!data) return EMPTY_SIGNALS;
 
-    const rawScopes = Array.isArray(data.scopes) ? data.scopes : [];
-    const rawIntents = Array.isArray(data.intents) ? data.intents : [];
-    const rawKeywords = Array.isArray(data.keywords) ? data.keywords : [];
+  const rawScopes = Array.isArray(data.scopes) ? data.scopes : [];
+  const rawIntents = Array.isArray(data.intents) ? data.intents : [];
+  const rawKeywords = Array.isArray(data.keywords) ? data.keywords : [];
 
-    const scopes = rawScopes
-      .filter((s): s is string => typeof s === "string" && validScopes.has(s))
-      .slice(0, 5);
+  const scopes = rawScopes
+    .filter((s): s is string => typeof s === "string" && validScopes.has(s))
+    .slice(0, 5);
 
-    const intents = rawIntents
-      .filter((i): i is IntentType =>
-        typeof i === "string" && (INTENT_TYPES as readonly string[]).includes(i)
-      )
-      .slice(0, 2);
+  const intents = rawIntents
+    .filter(isIntentType)
+    .slice(0, 2);
 
-    const keywords = rawKeywords
-      .filter((k): k is string => typeof k === "string" && k.length > 0)
-      .slice(0, 5);
+  const keywords = rawKeywords
+    .filter((k): k is string => typeof k === "string" && k.length > 0)
+    .slice(0, 5);
 
-    return { scopes, intents, keywords };
-  } catch {
-    return EMPTY_SIGNALS;
-  }
+  return { scopes, intents, keywords };
 };
 
 export const analyzePromptWithLlm = async (
@@ -205,31 +211,26 @@ export const parseFollowUpResponse = (
   text: string,
   validScopes: ReadonlySet<string>,
 ): readonly FollowUpQuery[] => {
-  try {
-    const data = parseJsonObject(text);
-    if (!data) return [];
-    const rawQueries = Array.isArray(data.queries) ? data.queries : [];
+  const data = parseJsonObject(text);
+  if (!data) return [];
+  const rawQueries = Array.isArray(data.queries) ? data.queries : [];
 
-    return rawQueries
-      .slice(0, 2)
-      .map((q: Record<string, unknown>) => ({
-        scope: typeof q.scope === "string" && validScopes.has(q.scope)
-          ? q.scope
-          : null,
-        intent: typeof q.intent === "string" &&
-            (INTENT_TYPES as readonly string[]).includes(q.intent)
-          ? (q.intent as IntentType)
-          : null,
-        decidedAgainst: typeof q.decidedAgainst === "string"
-          ? q.decidedAgainst
-          : null,
-      }))
-      .filter((q) =>
-        q.scope !== null || q.intent !== null || q.decidedAgainst !== null
-      );
-  } catch {
-    return [];
-  }
+  return rawQueries
+    .slice(0, 2)
+    .map(asRecord)
+    .filter((q): q is Record<string, unknown> => q !== null)
+    .map((q) => ({
+      scope: typeof q.scope === "string" && validScopes.has(q.scope)
+        ? q.scope
+        : null,
+      intent: isIntentType(q.intent) ? q.intent : null,
+      decidedAgainst: typeof q.decidedAgainst === "string"
+        ? q.decidedAgainst
+        : null,
+    }))
+    .filter((q) =>
+      q.scope !== null || q.intent !== null || q.decidedAgainst !== null
+    );
 };
 
 export const generateFollowUpQueries = async (

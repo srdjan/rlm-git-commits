@@ -16,7 +16,6 @@
  */
 
 import {
-  DEFAULT_CONFIG,
   loadRlmConfig,
   type RlmConfig,
   saveRlmConfig,
@@ -66,18 +65,65 @@ const parseFlags = (args: readonly string[]): CliFlags => {
     if (arg === "--enable") enable = true;
     else if (arg === "--disable") disable = true;
     else if (arg === "--check") check = true;
+    else if (arg === "--repl-enable") replEnable = true;
+    else if (arg === "--repl-disable") replDisable = true;
     else if (arg.startsWith("--model=")) model = arg.slice("--model=".length);
     else if (arg.startsWith("--endpoint=")) {
       endpoint = arg.slice("--endpoint=".length);
-    } else if (arg.startsWith("--timeout=")) {
-      timeout = parseInt(arg.slice("--timeout=".length), 10);
+    } else {
+      const parsedTimeout = parseIntFlag(arg, "--timeout=");
+      if (parsedTimeout !== null) {
+        timeout = parsedTimeout;
+        continue;
+      }
+
+      const parsedReplMaxIterations = parseIntFlag(
+        arg,
+        "--repl-max-iterations=",
+      );
+      if (parsedReplMaxIterations !== null) {
+        replMaxIterations = parsedReplMaxIterations;
+        continue;
+      }
+
+      const parsedReplMaxLlmCalls = parseIntFlag(arg, "--repl-max-llm-calls=");
+      if (parsedReplMaxLlmCalls !== null) {
+        replMaxLlmCalls = parsedReplMaxLlmCalls;
+        continue;
+      }
+
+      const parsedReplTimeoutBudget = parseIntFlag(
+        arg,
+        "--repl-timeout-budget=",
+      );
+      if (parsedReplTimeoutBudget !== null) {
+        replTimeoutBudget = parsedReplTimeoutBudget;
+        continue;
+      }
+
+      const parsedReplMaxOutputTokens = parseIntFlag(
+        arg,
+        "--repl-max-output-tokens=",
+      );
+      if (parsedReplMaxOutputTokens !== null) {
+        replMaxOutputTokens = parsedReplMaxOutputTokens;
+      }
     }
   }
 
   return {
-    enable, disable, check, model, endpoint, timeout,
-    replEnable, replDisable, replMaxIterations, replMaxLlmCalls,
-    replTimeoutBudget, replMaxOutputTokens,
+    enable,
+    disable,
+    check,
+    model,
+    endpoint,
+    timeout,
+    replEnable,
+    replDisable,
+    replMaxIterations,
+    replMaxLlmCalls,
+    replTimeoutBudget,
+    replMaxOutputTokens,
   };
 };
 
@@ -171,10 +217,18 @@ const main = async (): Promise<void> => {
 
   if (flags.replEnable) updated = { ...updated, replEnabled: true };
   if (flags.replDisable) updated = { ...updated, replEnabled: false };
-  if (flags.replMaxIterations !== null) updated = { ...updated, replMaxIterations: flags.replMaxIterations };
-  if (flags.replMaxLlmCalls !== null) updated = { ...updated, replMaxLlmCalls: flags.replMaxLlmCalls };
-  if (flags.replTimeoutBudget !== null) updated = { ...updated, replTimeoutBudgetMs: flags.replTimeoutBudget };
-  if (flags.replMaxOutputTokens !== null) updated = { ...updated, replMaxOutputTokens: flags.replMaxOutputTokens };
+  if (flags.replMaxIterations !== null) {
+    updated = { ...updated, replMaxIterations: flags.replMaxIterations };
+  }
+  if (flags.replMaxLlmCalls !== null) {
+    updated = { ...updated, replMaxLlmCalls: flags.replMaxLlmCalls };
+  }
+  if (flags.replTimeoutBudget !== null) {
+    updated = { ...updated, replTimeoutBudgetMs: flags.replTimeoutBudget };
+  }
+  if (flags.replMaxOutputTokens !== null) {
+    updated = { ...updated, replMaxOutputTokens: flags.replMaxOutputTokens };
+  }
 
   if (hasModification) {
     const saveResult = await saveRlmConfig(updated);

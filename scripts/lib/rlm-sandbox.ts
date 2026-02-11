@@ -9,7 +9,7 @@
  * Interfaces define effects/capabilities; types define data shapes.
  */
 
-import type { IndexedCommit, IntentType, TrailerIndex } from "../types.ts";
+import type { TrailerIndex } from "../types.ts";
 import { Result } from "../types.ts";
 import type { WorkingMemory } from "./working-memory.ts";
 import type { ChatMessage } from "./local-llm.ts";
@@ -63,13 +63,37 @@ export type SandboxEnv = {
 type HostToWorker =
   | { readonly kind: "init"; readonly env: SandboxEnv }
   | { readonly kind: "execute"; readonly code: string }
-  | { readonly kind: "llm-response"; readonly id: number; readonly result: { readonly ok: boolean; readonly value?: string; readonly error?: string } }
-  | { readonly kind: "gitlog-response"; readonly id: number; readonly result: { readonly ok: boolean; readonly value?: string; readonly error?: string } };
+  | {
+    readonly kind: "llm-response";
+    readonly id: number;
+    readonly result: {
+      readonly ok: boolean;
+      readonly value?: string;
+      readonly error?: string;
+    };
+  }
+  | {
+    readonly kind: "gitlog-response";
+    readonly id: number;
+    readonly result: {
+      readonly ok: boolean;
+      readonly value?: string;
+      readonly error?: string;
+    };
+  };
 
 type WorkerToHost =
   | { readonly kind: "result"; readonly output: SandboxOutput }
-  | { readonly kind: "llm-request"; readonly id: number; readonly messages: readonly ChatMessage[] }
-  | { readonly kind: "gitlog-request"; readonly id: number; readonly args: readonly string[] }
+  | {
+    readonly kind: "llm-request";
+    readonly id: number;
+    readonly messages: readonly ChatMessage[];
+  }
+  | {
+    readonly kind: "gitlog-request";
+    readonly id: number;
+    readonly args: readonly string[];
+  }
   | { readonly kind: "ready" };
 
 // ---------------------------------------------------------------------------
@@ -97,7 +121,9 @@ export const sanitizeGitLogArgs = (
     const arg = args[i];
 
     if (DANGEROUS_CHARS.test(arg)) {
-      return Result.fail(new Error(`Dangerous character in git log arg: ${arg}`));
+      return Result.fail(
+        new Error(`Dangerous character in git log arg: ${arg}`),
+      );
     }
 
     if (arg.startsWith("--")) {
@@ -145,122 +171,123 @@ export const sanitizeGitLogArgs = (
  * Uses string concatenation (not template literals) to avoid
  * escaping conflicts with regex and replacement patterns.
  */
-// deno-lint-ignore no-unused-vars
-const buildWorkerSource = (): string => [
-  "// State",
-  "let index = null;",
-  "let workingMemory = null;",
-  "let scopeKeys = [];",
-  "let nextRequestId = 1;",
-  "const pendingRequests = new Map();",
-  "let stdoutBuffer = '';",
-  "let doneSignal = null;",
-  "",
-  "// Matching (duplicated from matching.ts)",
-  "const scopeMatches = (sv, pat) => {",
-  "  const s = sv.toLowerCase(), p = pat.toLowerCase();",
-  "  return s === p || (s.startsWith(p) && s[p.length] === '/');",
-  "};",
-  "const wordBoundaryMatch = (text, kw) => {",
-  "  const esc = kw.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');",
-  "  return new RegExp('\\\\b' + esc + '\\\\b', 'i').test(text);",
-  "};",
-  "",
-  "// Query (duplicated from query.ts)",
-  "const queryIndexForHashes = (idx, p) => {",
-  "  let cands = null;",
-  "  const intersect = (hs) => {",
-  "    const s = new Set(hs);",
-  "    if (cands === null) { cands = s; }",
-  "    else { for (const h of cands) { if (!s.has(h)) cands.delete(h); } }",
-  "  };",
-  "  if (p.intents && p.intents.length > 0) {",
-  "    const ih = new Set();",
-  "    for (const i of p.intents) { for (const h of (idx.byIntent[i]||[])) ih.add(h); }",
-  "    intersect([...ih]);",
-  "  }",
-  "  if (p.session) intersect(idx.bySession[p.session] || []);",
-  "  if (p.decidedAgainst) {",
-  "    const kw = p.decidedAgainst, m = [];",
-  "    for (const h of idx.withDecidedAgainst) {",
-  "      const c = idx.commits[h];",
-  "      if (c && c.decidedAgainst.some(d => wordBoundaryMatch(d, kw))) m.push(h);",
-  "    }",
-  "    intersect(m);",
-  "  }",
-  "  if (p.scope) {",
-  "    const mh = [];",
-  "    for (const [sk, hs] of Object.entries(idx.byScope)) {",
-  "      if (scopeMatches(sk, p.scope)) mh.push(...hs);",
-  "    }",
-  "    intersect(mh);",
-  "  }",
-  "  if (cands === null) return [];",
-  "  return [...cands].slice(0, p.limit || 20);",
-  "};",
-  "",
-  "// API",
-  "const query = (params) => {",
-  "  if (!index) return [];",
-  "  const hs = queryIndexForHashes(index, params || {});",
-  "  return hs.map(h => index.commits[h]).filter(Boolean);",
-  "};",
-  "const callLlm = (msgs) => {",
-  "  const id = nextRequestId++;",
-  "  self.postMessage({ kind: 'llm-request', id, messages: msgs });",
-  "  return new Promise((res, rej) => { pendingRequests.set(id, { resolve: res, reject: rej }); });",
-  "};",
-  "const gitLog = (args) => {",
-  "  const id = nextRequestId++;",
-  "  self.postMessage({ kind: 'gitlog-request', id, args: args || [] });",
-  "  return new Promise((res, rej) => { pendingRequests.set(id, { resolve: res, reject: rej }); });",
-  "};",
-  "const done = (answer) => {",
-  "  doneSignal = typeof answer === 'string' ? answer : String(answer);",
-  "};",
-  "",
-  "// Console capture",
-  "console.log = (...args) => {",
-  "  const line = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');",
-  "  stdoutBuffer += line + '\\n';",
-  "};",
-  "",
-  "// Message handler",
-  "self.onmessage = async (e) => {",
-  "  const msg = e.data;",
-  "  if (msg.kind === 'init') {",
-  "    index = msg.env.index;",
-  "    workingMemory = msg.env.workingMemory;",
-  "    scopeKeys = msg.env.scopeKeys;",
-  "    self.postMessage({ kind: 'ready' });",
-  "    return;",
-  "  }",
-  "  if (msg.kind === 'llm-response' || msg.kind === 'gitlog-response') {",
-  "    const pend = pendingRequests.get(msg.id);",
-  "    if (pend) {",
-  "      pendingRequests.delete(msg.id);",
-  "      if (msg.result.ok) pend.resolve(msg.result.value);",
-  "      else pend.reject(new Error(msg.result.error || 'Request failed'));",
-  "    }",
-  "    return;",
-  "  }",
-  "  if (msg.kind === 'execute') {",
-  "    stdoutBuffer = '';",
-  "    doneSignal = null;",
-  "    let rv = undefined, err = null;",
-  "    try {",
-  "      const fn = new Function('index','workingMemory','scopeKeys','query','callLlm','gitLog','done', msg.code);",
-  "      rv = await fn(index, workingMemory, scopeKeys, query, callLlm, gitLog, done);",
-  "    } catch (e) {",
-  "      err = e instanceof Error ? e.message : String(e);",
-  "    }",
-  "    self.postMessage({",
-  "      kind: 'result',",
-  "      output: { stdout: stdoutBuffer, returnValue: rv === undefined ? null : rv, error: err, done: doneSignal !== null, doneAnswer: doneSignal }",
-  "    });",
-  "  }",
-  "};",
-].join("\n");
+const buildWorkerSource = (): string =>
+  [
+    "// State",
+    "let index = null;",
+    "let workingMemory = null;",
+    "let scopeKeys = [];",
+    "let nextRequestId = 1;",
+    "const pendingRequests = new Map();",
+    "let stdoutBuffer = '';",
+    "let doneSignal = null;",
+    "",
+    "// Matching (duplicated from matching.ts)",
+    "const scopeMatches = (sv, pat) => {",
+    "  const s = sv.toLowerCase(), p = pat.toLowerCase();",
+    "  return s === p || (s.startsWith(p) && s[p.length] === '/');",
+    "};",
+    "const wordBoundaryMatch = (text, kw) => {",
+    "  const esc = kw.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');",
+    "  return new RegExp('\\\\b' + esc + '\\\\b', 'i').test(text);",
+    "};",
+    "",
+    "// Query (duplicated from query.ts)",
+    "const queryIndexForHashes = (idx, p) => {",
+    "  let cands = null;",
+    "  const intersect = (hs) => {",
+    "    const s = new Set(hs);",
+    "    if (cands === null) { cands = s; }",
+    "    else { for (const h of cands) { if (!s.has(h)) cands.delete(h); } }",
+    "  };",
+    "  if (p.intents && p.intents.length > 0) {",
+    "    const ih = new Set();",
+    "    for (const i of p.intents) { for (const h of (idx.byIntent[i]||[])) ih.add(h); }",
+    "    intersect([...ih]);",
+    "  }",
+    "  if (p.session) intersect(idx.bySession[p.session] || []);",
+    "  if (p.decidedAgainst) {",
+    "    const kw = p.decidedAgainst, m = [];",
+    "    for (const h of idx.withDecidedAgainst) {",
+    "      const c = idx.commits[h];",
+    "      if (c && c.decidedAgainst.some(d => wordBoundaryMatch(d, kw))) m.push(h);",
+    "    }",
+    "    intersect(m);",
+    "  }",
+    "  if (p.scope) {",
+    "    const mh = [];",
+    "    for (const [sk, hs] of Object.entries(idx.byScope)) {",
+    "      if (scopeMatches(sk, p.scope)) mh.push(...hs);",
+    "    }",
+    "    intersect(mh);",
+    "  }",
+    "  if (cands === null) return [];",
+    "  return [...cands].slice(0, p.limit || 20);",
+    "};",
+    "",
+    "// API",
+    "const query = (params) => {",
+    "  if (!index) return [];",
+    "  const hs = queryIndexForHashes(index, params || {});",
+    "  return hs.map(h => index.commits[h]).filter(Boolean);",
+    "};",
+    "const callLlm = (msgs) => {",
+    "  const id = nextRequestId++;",
+    "  self.postMessage({ kind: 'llm-request', id, messages: msgs });",
+    "  return new Promise((res, rej) => { pendingRequests.set(id, { resolve: res, reject: rej }); });",
+    "};",
+    "const gitLog = (args) => {",
+    "  const id = nextRequestId++;",
+    "  self.postMessage({ kind: 'gitlog-request', id, args: args || [] });",
+    "  return new Promise((res, rej) => { pendingRequests.set(id, { resolve: res, reject: rej }); });",
+    "};",
+    "const done = (answer) => {",
+    "  doneSignal = typeof answer === 'string' ? answer : String(answer);",
+    "};",
+    "",
+    "// Console capture",
+    "console.log = (...args) => {",
+    "  const line = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');",
+    "  stdoutBuffer += line + '\\n';",
+    "};",
+    "",
+    "// Message handler",
+    "self.onmessage = async (e) => {",
+    "  const msg = e.data;",
+    "  if (msg.kind === 'init') {",
+    "    index = msg.env.index;",
+    "    workingMemory = msg.env.workingMemory;",
+    "    scopeKeys = msg.env.scopeKeys;",
+    "    self.postMessage({ kind: 'ready' });",
+    "    return;",
+    "  }",
+    "  if (msg.kind === 'llm-response' || msg.kind === 'gitlog-response') {",
+    "    const pend = pendingRequests.get(msg.id);",
+    "    if (pend) {",
+    "      pendingRequests.delete(msg.id);",
+    "      if (msg.result.ok) pend.resolve(msg.result.value);",
+    "      else pend.reject(new Error(msg.result.error || 'Request failed'));",
+    "    }",
+    "    return;",
+    "  }",
+    "  if (msg.kind === 'execute') {",
+    "    stdoutBuffer = '';",
+    "    doneSignal = null;",
+    "    let rv = undefined, err = null;",
+    "    try {",
+    "      const wrapped = 'return (async () => {\\n' + msg.code + '\\n})();';",
+    "      const fn = new Function('index','workingMemory','scopeKeys','query','callLlm','gitLog','done', wrapped);",
+    "      rv = await fn(index, workingMemory, scopeKeys, query, callLlm, gitLog, done);",
+    "    } catch (e) {",
+    "      err = e instanceof Error ? e.message : String(e);",
+    "    }",
+    "    self.postMessage({",
+    "      kind: 'result',",
+    "      output: { stdout: stdoutBuffer, returnValue: rv === undefined ? null : rv, error: err, done: doneSignal !== null, doneAnswer: doneSignal }",
+    "    });",
+    "  }",
+    "};",
+  ].join("\n");
 
 // ---------------------------------------------------------------------------
 // Sandbox factory
@@ -311,22 +338,36 @@ export const createSandbox = (
   const execute = async (code: string): Promise<Result<SandboxOutput>> => {
     if (!initialized) await initPromise;
 
+    const toWorkerResult = (result: Result<string>) =>
+      result.ok
+        ? { ok: true, value: result.value }
+        : { ok: false, error: result.error.message };
+
     return new Promise<Result<SandboxOutput>>((resolve) => {
-      const timer = setTimeout(() => {
-        resolve(Result.fail(new Error("Sandbox execution timed out")));
-      }, EXECUTE_TIMEOUT_MS);
+      let timer: number | null = null;
+      let settled = false;
+
+      const settle = (result: Result<SandboxOutput>) => {
+        if (settled) return;
+        settled = true;
+        if (timer !== null) clearTimeout(timer);
+        worker.removeEventListener("message", handler);
+        resolve(result);
+      };
 
       const handler = async (e: MessageEvent) => {
         const msg = e.data as WorkerToHost;
 
         if (msg.kind === "llm-request") {
-          const result = await onLlmCall(msg.messages);
+          const result = await onLlmCall(msg.messages).catch((error) =>
+            Result.fail(
+              error instanceof Error ? error : new Error(String(error)),
+            )
+          );
           const response: HostToWorker = {
             kind: "llm-response",
             id: msg.id,
-            result: result.ok
-              ? { ok: true, value: result.value }
-              : { ok: false, error: result.error.message },
+            result: toWorkerResult(result),
           };
           worker.postMessage(response);
           return;
@@ -335,30 +376,38 @@ export const createSandbox = (
         if (msg.kind === "gitlog-request") {
           const sanitized = sanitizeGitLogArgs(msg.args);
           if (!sanitized.ok) {
-            worker.postMessage({
-              kind: "gitlog-response",
-              id: msg.id,
-              result: { ok: false, error: sanitized.error.message },
-            } satisfies HostToWorker);
+            worker.postMessage(
+              {
+                kind: "gitlog-response",
+                id: msg.id,
+                result: { ok: false, error: sanitized.error.message },
+              } satisfies HostToWorker,
+            );
             return;
           }
-          const result = await onGitLog(sanitized.value);
-          worker.postMessage({
-            kind: "gitlog-response",
-            id: msg.id,
-            result: result.ok
-              ? { ok: true, value: result.value }
-              : { ok: false, error: result.error.message },
-          } satisfies HostToWorker);
+          const result = await onGitLog(sanitized.value).catch((error) =>
+            Result.fail(
+              error instanceof Error ? error : new Error(String(error)),
+            )
+          );
+          worker.postMessage(
+            {
+              kind: "gitlog-response",
+              id: msg.id,
+              result: toWorkerResult(result),
+            } satisfies HostToWorker,
+          );
           return;
         }
 
         if (msg.kind === "result") {
-          clearTimeout(timer);
-          worker.removeEventListener("message", handler);
-          resolve(Result.ok(msg.output));
+          settle(Result.ok(msg.output));
         }
       };
+
+      timer = setTimeout(() => {
+        settle(Result.fail(new Error("Sandbox execution timed out")));
+      }, EXECUTE_TIMEOUT_MS);
 
       worker.addEventListener("message", handler);
       worker.postMessage({ kind: "execute", code } satisfies HostToWorker);
