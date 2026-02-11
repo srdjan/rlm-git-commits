@@ -36,7 +36,7 @@ import {
   formatWorkingMemory,
   loadWorkingMemory,
 } from "./lib/working-memory.ts";
-import { loadRlmConfig } from "./lib/rlm-config.ts";
+import { loadRlmConfig, type RlmConfig } from "./lib/rlm-config.ts";
 import {
   analyzePromptWithLlm,
   type FollowUpQuery,
@@ -44,6 +44,8 @@ import {
   type LlmPromptSignals,
   summarizeContext,
 } from "./lib/rlm-subcalls.ts";
+import { runRepl, replConfigFromRlm, type ReplEnv } from "./lib/rlm-repl.ts";
+import { callLocalLlm, type ChatMessage } from "./lib/local-llm.ts";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -509,8 +511,82 @@ const executeFollowUpQueries = (
 };
 
 /**
+ * Try the REPL path: LLM writes code executed in a sandboxed Worker.
+ * Returns LlmPathResult on success, null on failure (triggers fallback).
+ */
+const tryReplPath = async (
+  config: RlmConfig,
+  index: TrailerIndex,
+  prompt: string,
+  scopeKeys: readonly string[],
+): Promise<LlmPathResult | null> => {
+  const totalStart = performance.now();
+  const sessionId = Deno.env.get("STRUCTURED_GIT_SESSION") ?? null;
+  let wm: import("./lib/working-memory.ts").WorkingMemory | null = null;
+  if (sessionId) {
+    const wmResult = await loadWorkingMemory(sessionId);
+    if (wmResult.ok && wmResult.value) wm = wmResult.value;
+  }
+
+  const replEnv: ReplEnv = { index, workingMemory: wm, scopeKeys };
+  const replConfig = replConfigFromRlm(config);
+
+  const llmCaller = async (
+    messages: readonly ChatMessage[],
+    maxTokens: number,
+  ) =>
+    callLocalLlm({
+      endpoint: config.endpoint,
+      model: config.model,
+      messages,
+      maxTokens,
+      timeoutMs: config.timeoutMs,
+    });
+
+  const gitLogCaller = async (args: readonly string[]) => execGitLog(args);
+
+  const replResult = await runRepl(
+    config,
+    replConfig,
+    prompt,
+    replEnv,
+    llmCaller,
+    gitLogCaller,
+  );
+
+  if (!replResult.ok) return null;
+
+  const result = replResult.value;
+  const totalMs = performance.now() - totalStart;
+
+  return {
+    data: {
+      mode: "llm-enhanced",
+      recentCommits: [],
+      decisions: [],
+      session: sessionId && index.bySession[sessionId]
+        ? { id: sessionId, commitCount: index.bySession[sessionId].length }
+        : null,
+      summary: result.answer,
+    },
+    trace: {
+      model: config.model,
+      llmSignals: { scopes: [], intents: [], keywords: [] },
+      followUpQueries: [],
+      initialHashes: [],
+      followUpAddedHashes: [],
+      finalHashes: [],
+      latenciesMs: { total: totalMs },
+    },
+  };
+};
+
+/**
  * Try the LLM-enhanced path. Returns ContextData on success, null on any
  * LLM failure (caller should fall through to keyword path).
+ *
+ * When REPL mode is enabled, tries the REPL path first. Falls back to
+ * the hardcoded 4-step pipeline on REPL failure.
  */
 const tryLlmEnhancedPath = async (
   index: TrailerIndex,
@@ -520,6 +596,13 @@ const tryLlmEnhancedPath = async (
   const totalStart = performance.now();
   const config = await loadRlmConfig();
   if (!config.enabled) return null;
+
+  // Try REPL path first when enabled
+  if (config.replEnabled) {
+    const replResult = await tryReplPath(config, index, prompt, scopeKeys);
+    if (replResult) return replResult;
+    // Fall through to hardcoded pipeline on REPL failure
+  }
 
   // Step 1: LLM prompt analysis
   const analyzeStart = performance.now();
