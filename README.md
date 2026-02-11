@@ -69,14 +69,20 @@ This system implements RLM over git commit history. The trailer index is the pre
 |---|---|
 | Environment (external data) | Git commit history + trailer index (`.git/info/trailer-index.json`) |
 | REPL variables (persistent state) | Working memory (`.git/info/working-memory.json`) |
-| Peek / Grep operations | Prompt-aware keyword matching against trailer index scope keys and intent synonyms |
-| Recursive sub-calls | LLM-enhanced follow-up queries (`analyzePromptWithLlm`, `generateFollowUpQueries`) |
-| Aggregation | Context summarization via local LLM (`summarizeContext`) |
+| Peek / Grep operations | Standard: keyword matching; REPL: `query()` and `gitLog()` API in sandbox |
+| Recursive sub-calls | Standard: hardcoded pipeline; REPL: `callLlm()` in LLM-generated code |
+| Aggregation | Standard: `summarizeContext()`; REPL: LLM decides via `done(summary)` |
 | Persistent state across sessions | Session summaries, consolidated at Stop hook (`.git/info/session-summary-{slug}.md`) |
 
 ### Where We Diverge
 
-The implementation makes pragmatic trade-offs against the paper's general-purpose design. Recursion is shallow: the system generates at most two follow-up queries per prompt rather than allowing arbitrary depth. Operations are predefined (scope matching, intent filtering, decision archaeology) rather than allowing the LLM to generate arbitrary code in a REPL. The architecture uses dual LLMs: a local Ollama model handles the fast recursive sub-calls (prompt analysis, follow-up generation, summarization), while Claude handles the actual coding work. And the lifecycle is hook-driven - Claude Code events (UserPromptSubmit, PostToolUse, Stop) trigger the environment interactions rather than an explicit REPL loop.
+The implementation provides two modes with different trade-offs:
+
+**Standard mode (llm-enhanced)**: Makes pragmatic simplifications for speed. Recursion is shallow (at most two follow-up queries per prompt). Operations are predefined (scope matching, intent filtering, decision archaeology) rather than arbitrary code. This mode prioritizes low latency (1-3s) for typical use cases.
+
+**REPL mode (advanced)**: Implements the full RLM pattern where the local LLM writes JavaScript code executed in a sandboxed Deno Worker. The LLM decides what to inspect, when to recurse via callLlm(), and when to stop via done(). This mode is higher latency (3-8s) but allows dynamic exploration beyond the hardcoded pipeline.
+
+Both modes use dual LLMs: a local Ollama model handles the recursive sub-calls and context extraction, while Claude handles the actual coding work. The lifecycle is hook-driven - Claude Code events (UserPromptSubmit, PostToolUse, Stop) trigger the environment interactions.
 
 ## Installation
 
@@ -455,9 +461,84 @@ Configuration is stored at `.git/info/rlm-config.json` (local, not committed). E
   "endpoint": "http://localhost:11434",
   "model": "qwen2.5:7b",
   "timeoutMs": 5000,
-  "maxTokens": 256
+  "maxTokens": 256,
+  "replEnabled": false,
+  "replMaxIterations": 6,
+  "replMaxLlmCalls": 10,
+  "replTimeoutBudgetMs": 15000,
+  "replMaxOutputTokens": 512
 }
 ```
+
+### REPL Mode (Advanced)
+
+The system supports an advanced REPL (Read-Eval-Print Loop) mode that implements the full RLM pattern from the Zhang et al. paper. Instead of hardcoded sub-calls (analyze, follow-up, summarize), the local LLM writes JavaScript code that executes in a sandboxed Deno Worker against the pre-loaded git history index.
+
+#### How It Works
+
+In REPL mode, the LLM receives a system prompt describing the sandbox API and writes code to explore the git history. The LLM decides what to inspect, when to recurse via `callLlm()`, and when to stop via `done()`. The sandbox provides:
+
+- **query(scope, intent, decidedAgainst, limit)** - Query the trailer index
+- **gitLog(args)** - Execute git log commands with sanitized arguments
+- **callLlm(prompt, maxTokens)** - Recursive LLM calls for deeper analysis
+- **done(summary)** - Return results and exit the REPL loop
+- **workingMemory** - Access to session findings and decisions
+
+#### Safety Model
+
+Three layers of safety prevent runaway execution:
+1. **Per-LLM-call timeout** - Individual LLM requests timeout after configured duration
+2. **Per-execution timeout** - Each sandbox code execution has a bounded runtime
+3. **Total wall-clock budget** - The entire REPL session has a maximum duration (default 15s)
+
+The sandbox runs with zero OS permissions (no file system, no network, no environment access).
+
+#### Enabling REPL Mode
+
+REPL mode requires local LLM mode to be enabled first:
+
+```bash
+# Enable LLM mode
+deno task rlm:configure -- --enable --check
+
+# Enable REPL mode
+deno task rlm:configure -- --repl-enable
+```
+
+Configuration options:
+
+```bash
+# Disable REPL mode
+deno task rlm:configure -- --repl-disable
+
+# Adjust iteration and call limits
+deno task rlm:configure -- --repl-max-iterations=3
+deno task rlm:configure -- --repl-max-llm-calls=5
+
+# Adjust timeout budget (milliseconds)
+deno task rlm:configure -- --repl-timeout-budget=8000
+
+# Adjust output token limit
+deno task rlm:configure -- --repl-max-output-tokens=256
+```
+
+#### When to Use REPL Mode
+
+REPL mode is more flexible than the sub-call approach but adds complexity and latency. Use it when:
+- You need dynamic exploration beyond the hardcoded 4-step pipeline
+- Your prompts require complex multi-step reasoning over git history
+- The LLM benefits from deciding its own query strategy
+
+For most use cases, the default sub-call mode (llm-enhanced without REPL) provides sufficient context extraction with lower latency.
+
+#### Performance Characteristics
+
+REPL mode typically adds 3-8 seconds of latency depending on:
+- LLM generation speed for code
+- Number of iterations and recursive calls
+- Complexity of git history queries
+
+The system falls back gracefully to the standard sub-call pipeline if REPL execution fails or times out.
 
 ### Working Memory
 

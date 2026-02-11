@@ -109,4 +109,17 @@
 
   Latency: adds ~1-3s to prompt processing when enabled.
   Fallback: if Ollama is unreachable, silently falls back to keyword mode.
+
+  Advanced REPL mode:
+    deno task rlm:configure -- --repl-enable     # enable REPL mode
+    deno task rlm:configure -- --repl-disable    # disable REPL mode
+
+  REPL mode implements the full RLM pattern where the local LLM writes
+  JavaScript code executed in a sandboxed Deno Worker against the git
+  history index. The LLM decides what to inspect, when to recurse via
+  callLlm(), and when to stop via done(). Three-layer safety: per-call
+  timeout, per-execution timeout, total budget (default 15s).
+
+  Use REPL for complex multi-step reasoning. For most cases, the standard
+  sub-call pipeline (llm-enhanced mode without REPL) is sufficient and faster.
 </rlm-local-llm>
