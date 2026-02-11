@@ -2,6 +2,7 @@ import { assertEquals } from "https://deno.land/std@0.224.0/assert/assert_equals
 import { assert } from "https://deno.land/std@0.224.0/assert/assert.ts";
 import {
   DEFAULT_CONFIG,
+  DEFAULT_REPL_CONFIG,
   getConfigPath,
   loadRlmConfig,
   saveRlmConfig,
@@ -45,6 +46,7 @@ Deno.test("loadRlmConfig: round-trip save and load preserves config", async () =
     model: "llama3.2:3b",
     timeoutMs: 3000,
     maxTokens: 512,
+    ...DEFAULT_REPL_CONFIG,
   };
 
   const saveResult = await saveRlmConfig(custom);
@@ -141,5 +143,59 @@ Deno.test("loadRlmConfig: partial config fills defaults", async () => {
     } catch {
       // ignore
     }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// REPL fields: v1 config without REPL fields gets defaults
+// ---------------------------------------------------------------------------
+
+Deno.test("loadRlmConfig: v1 config without REPL fields fills defaults", async () => {
+  const pathResult = await getConfigPath();
+  assert(pathResult.ok);
+  if (pathResult.ok) {
+    await Deno.writeTextFile(
+      pathResult.value,
+      JSON.stringify({ version: 1, enabled: true, model: "test" }),
+    );
+  }
+
+  const config = await loadRlmConfig();
+  assertEquals(config.replEnabled, false);
+  assertEquals(config.replMaxIterations, 6);
+  assertEquals(config.replMaxLlmCalls, 10);
+  assertEquals(config.replTimeoutBudgetMs, 15000);
+  assertEquals(config.replMaxOutputTokens, 512);
+
+  // Cleanup
+  if (pathResult.ok) {
+    try { await Deno.remove(pathResult.value); } catch { /* ignore */ }
+  }
+});
+
+Deno.test("loadRlmConfig: round-trip preserves REPL fields", async () => {
+  const custom: RlmConfig = {
+    ...DEFAULT_CONFIG,
+    replEnabled: true,
+    replMaxIterations: 3,
+    replMaxLlmCalls: 5,
+    replTimeoutBudgetMs: 8000,
+    replMaxOutputTokens: 256,
+  };
+
+  const saveResult = await saveRlmConfig(custom);
+  assert(saveResult.ok);
+
+  const loaded = await loadRlmConfig();
+  assertEquals(loaded.replEnabled, true);
+  assertEquals(loaded.replMaxIterations, 3);
+  assertEquals(loaded.replMaxLlmCalls, 5);
+  assertEquals(loaded.replTimeoutBudgetMs, 8000);
+  assertEquals(loaded.replMaxOutputTokens, 256);
+
+  // Cleanup
+  const pathResult = await getConfigPath();
+  if (pathResult.ok) {
+    try { await Deno.remove(pathResult.value); } catch { /* ignore */ }
   }
 });

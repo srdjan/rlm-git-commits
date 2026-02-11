@@ -14,18 +14,32 @@ import { Result } from "../types.ts";
 // Types
 // ---------------------------------------------------------------------------
 
-export interface RlmConfig {
+export type RlmConfig = {
   readonly version: 1;
   readonly enabled: boolean;
   readonly endpoint: string;
   readonly model: string;
   readonly timeoutMs: number;
   readonly maxTokens: number;
-}
+  // REPL mode fields
+  readonly replEnabled: boolean;
+  readonly replMaxIterations: number;
+  readonly replMaxLlmCalls: number;
+  readonly replTimeoutBudgetMs: number;
+  readonly replMaxOutputTokens: number;
+};
 
 // ---------------------------------------------------------------------------
 // Defaults
 // ---------------------------------------------------------------------------
+
+export const DEFAULT_REPL_CONFIG = {
+  replEnabled: false,
+  replMaxIterations: 6,
+  replMaxLlmCalls: 10,
+  replTimeoutBudgetMs: 15000,
+  replMaxOutputTokens: 512,
+} as const;
 
 export const DEFAULT_CONFIG: RlmConfig = {
   version: 1,
@@ -34,6 +48,7 @@ export const DEFAULT_CONFIG: RlmConfig = {
   model: "qwen2.5:7b",
   timeoutMs: 5000,
   maxTokens: 256,
+  ...DEFAULT_REPL_CONFIG,
 };
 
 // ---------------------------------------------------------------------------
@@ -84,6 +99,11 @@ export const loadRlmConfig = async (): Promise<RlmConfig> => {
       model: typeof data.model === "string" ? data.model : DEFAULT_CONFIG.model,
       timeoutMs: typeof data.timeoutMs === "number" ? data.timeoutMs : DEFAULT_CONFIG.timeoutMs,
       maxTokens: typeof data.maxTokens === "number" ? data.maxTokens : DEFAULT_CONFIG.maxTokens,
+      replEnabled: typeof data.replEnabled === "boolean" ? data.replEnabled : DEFAULT_REPL_CONFIG.replEnabled,
+      replMaxIterations: typeof data.replMaxIterations === "number" ? data.replMaxIterations : DEFAULT_REPL_CONFIG.replMaxIterations,
+      replMaxLlmCalls: typeof data.replMaxLlmCalls === "number" ? data.replMaxLlmCalls : DEFAULT_REPL_CONFIG.replMaxLlmCalls,
+      replTimeoutBudgetMs: typeof data.replTimeoutBudgetMs === "number" ? data.replTimeoutBudgetMs : DEFAULT_REPL_CONFIG.replTimeoutBudgetMs,
+      replMaxOutputTokens: typeof data.replMaxOutputTokens === "number" ? data.replMaxOutputTokens : DEFAULT_REPL_CONFIG.replMaxOutputTokens,
     };
   } catch {
     return DEFAULT_CONFIG;
