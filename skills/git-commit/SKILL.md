@@ -87,7 +87,8 @@ definitions and usage guidance: `references/intent-taxonomy.md`
 When given a diff (or after making changes), follow this process:
 
 1. **Classify the change type** — Map to Conventional Commits type:
-   `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `build`, `ci`, `chore`
+   `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `build`, `ci`, `chore`,
+   `revert`
 2. **Identify the narrowest scope** — What module or domain boundary does this
    touch? Use the parenthetical scope in the subject line.
 3. **Write the subject in imperative mood** — "Add", "Fix", "Extract", not
