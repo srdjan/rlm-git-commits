@@ -36,7 +36,7 @@ Copy the skills to your Claude skills directory so Claude uses the format automa
 cp -r skills/* ~/.claude/skills/
 ```
 
-This installs two skills: `git-structure-commits` (how to write) and `git-query-commits` (how to query). Claude Code discovers them automatically.
+This installs two skills: `git-commit` (how to write) and `git-query` (how to query). Claude Code discovers them automatically.
 
 ### The Commit-Msg Hook
 
@@ -459,8 +459,8 @@ The format, taxonomy, and tooling are designed to be forked. The intent vocabula
 - Intent types: `scripts/types.ts` (the `INTENT_TYPES` array)
 - Known trailers: `scripts/types.ts` (the `KNOWN_TRAILER_KEYS` set)
 - Validation rules: `scripts/lib/validator.ts`
-- Commit format spec: `skills/git-structure-commits/references/commit-format.md`
-- Intent definitions: `skills/git-structure-commits/references/intent-taxonomy.md`
+- Commit format spec: `skills/git-commit/references/commit-format.md`
+- Intent definitions: `skills/git-commit/references/intent-taxonomy.md`
 
 If your project needs different intents, additional trailers, or looser validation, edit these files directly. The taxonomy is intentionally small so that changes are easy to reason about.
 

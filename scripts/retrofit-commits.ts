@@ -217,8 +217,8 @@ const loadRefDoc = (path: string): Result<string> => {
 const findReferenceDocs = (): Result<{ formatSpec: string; taxonomy: string }> => {
   // Try relative to script location first, then cwd
   const paths = [
-    ["skills/git-structure-commits/references/commit-format.md",
-     "skills/git-structure-commits/references/intent-taxonomy.md"],
+    ["skills/git-commit/references/commit-format.md",
+     "skills/git-commit/references/intent-taxonomy.md"],
   ];
 
   for (const [formatPath, taxonomyPath] of paths) {
