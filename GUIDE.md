@@ -53,7 +53,7 @@ deno task hook:install --global
 deno task hook:install --uninstall
 ```
 
-The hook runs `scripts/validate-commit.ts` on every commit message. Errors (missing Intent, invalid format) block the commit. Warnings (flat scope without `/`, empty body on a feature commit) are reported but allowed through.
+The hook runs `scripts/validate-commit.ts` on every commit message. Errors (missing Intent, invalid format, no blank line after the subject) block the commit. Warnings (flat scope without `/`, empty body on a feature commit, header over 50 characters, body lines over 72) are reported but allowed through.
 
 ### The Commit Template
 
@@ -85,7 +85,7 @@ Walk through each part:
 ### The Header
 
 ```
-<type>(<scope>): <subject>
+<type>(<scope>): <Subject>
 ```
 
 The type comes from Conventional Commits: `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `build`, `ci`, `chore`, or `revert`. The parenthetical scope is the narrowest module or area affected.
@@ -315,7 +315,7 @@ git log -50 --format='%(trailers:key=Intent,valueonly)' | sort | uniq -c | sort 
 
 ## The Auto-Context Hook
 
-The auto-context hook implements the RLM (Retrieval-augmented Language Model) pattern: on every Claude Code prompt, a `UserPromptSubmit` hook injects a compact summary of recent git history. Claude sees recent commits, decided-against entries, and session info without having to actively query.
+On every Claude Code prompt, a `UserPromptSubmit` hook injects a compact summary of recent git history. Claude sees recent commits, decided-against entries, and session info without having to actively query.
 
 This creates two tiers of context:
 
@@ -395,7 +395,7 @@ deno task retrofit -- --apply
 
 The utility extracts each commit's message and diff stats, sends them to Claude with the format spec and intent taxonomy as system context, validates the response against the same rules as the commit-msg hook, and retries on validation errors. Results are cached to `.retrofit-cache.json`.
 
-The `--apply` flag rewrites history using `git filter-branch`. Only commits with zero validation errors are rewritten. Original refs are saved to `refs/original/` for recovery. This requires the `ANTHROPIC_API_KEY` environment variable.
+The `--apply` flag rewrites history using `git filter-branch`. Only commits with zero validation errors are rewritten. Original refs are saved to `refs/original/` for recovery. Add `--force` to skip the confirmation prompt. This requires the `ANTHROPIC_API_KEY` environment variable.
 
 **Caution:** `--apply` rewrites git history. Use it only on branches that have not been shared, or coordinate with your team. The backup refs allow recovery, but prevention is better than recovery.
 

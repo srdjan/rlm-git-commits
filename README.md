@@ -60,10 +60,12 @@ Both skills work independently, but together they create a zero-infrastructure a
 
 When committing code, follow the format in [references/commit-format.md](skills/git-commit/references/commit-format.md):
 
-1. Write a conventional commits subject line: `type(scope): description`
-2. Add a body explaining what and why
+1. Write a conventional commits subject line: `type(scope): Subject`. Capitalize the subject, keep it imperative, drop the trailing period, and aim for 50 characters across the whole line. 72 is the hard limit.
+2. Add a body explaining what and why, hard-wrapped at 72 characters
 3. Include required trailers: `Intent:` and `Scope:`
 4. Record alternatives you considered: `Decided-Against:`
+
+The format follows the seven rules of a great commit message ([cbea.ms/git-commit](https://cbea.ms/git-commit/)), with one divergence: the Conventional Commits prefix stays lowercase and the sentence after the colon is capitalized.
 
 The intent must be one of eight values from the [controlled vocabulary](skills/git-commit/references/intent-taxonomy.md): `enable-capability`, `fix-defect`, `improve-quality`, `restructure`, `configure-infra`, `document`, `explore`, or `resolve-blocker`.
 
@@ -115,7 +117,7 @@ deno task retrofit -- --apply
 
 The utility extracts each commit's message, diff stats, and shortstat, sends them to Claude with the format spec and intent taxonomy as system context, validates the generated messages against the same rules as the commit-msg hook, and retries on validation errors. Results are cached to `.retrofit-cache.json` for resume support.
 
-The `--apply` flag rewrites history using `git filter-branch`. Only commits with zero validation errors are rewritten. Original refs are saved to `refs/original/` for recovery. Requires `ANTHROPIC_API_KEY` environment variable.
+The `--apply` flag rewrites history using `git filter-branch`. Only commits with zero validation errors are rewritten. Original refs are saved to `refs/original/` for recovery. Add `--force` to skip the confirmation prompt. Requires `ANTHROPIC_API_KEY` environment variable.
 
 ## Intent Taxonomy
 
@@ -241,7 +243,7 @@ fi
 
 ### Claude Code Hook (Auto-Context)
 
-A `UserPromptSubmit` hook can inject recent git history context before every Claude prompt automatically. This implements the RLM pattern: Claude receives a compact summary of recent commits, decisions, and session info without having to actively query.
+A `UserPromptSubmit` hook can inject recent git history context before every Claude prompt automatically. Claude receives a compact summary of recent commits, decisions, and session info without having to actively query.
 
 **What it does:** On every prompt, the hook runs `scripts/git-memory-context.ts`, which loads the trailer index (or falls back to git log) and outputs a `<git-memory-context>` block that Claude sees as injected context. This includes recent decided-against entries, recent commit subjects with scopes, and current session info.
 
