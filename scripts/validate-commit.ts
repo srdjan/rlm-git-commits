@@ -9,7 +9,7 @@
  *   deno run --allow-read scripts/validate-commit.ts "$1"
  *
  * Usage standalone:
- *   echo "feat(auth): add login" | deno run scripts/validate-commit.ts --stdin
+ *   echo "feat(auth): Add login" | deno run scripts/validate-commit.ts --stdin
  *   deno run --allow-read scripts/validate-commit.ts path/to/commit-msg-file
  */
 

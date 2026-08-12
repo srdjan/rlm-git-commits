@@ -12,21 +12,67 @@ import {
 // ---------------------------------------------------------------------------
 
 Deno.test("validateHeader: valid header produces no diagnostics", () => {
-  const result = validateHeader("feat(auth): add passkey registration");
+  const result = validateHeader("feat(auth): Add passkey registration");
   assertEquals(result.length, 0);
 });
 
 Deno.test("validateHeader: header without scope is valid", () => {
-  const result = validateHeader("chore: update dependencies");
+  const result = validateHeader("chore: Update dependencies");
   assertEquals(result.length, 0);
 });
 
 Deno.test("validateHeader: header over 72 chars produces error", () => {
-  const long = "feat(auth): " + "a".repeat(70);
+  const long = "feat(auth): A" + "a".repeat(70);
   const result = validateHeader(long);
 
   assert(result.some((d) => d.rule === "header-max-length"));
   assert(result.some((d) => d.severity === "error"));
+});
+
+Deno.test("validateHeader: header over 50 chars produces warning", () => {
+  const header = "feat(auth): Add passkey registration for agent identities";
+  const result = validateHeader(header);
+
+  assert(result.some((d) => d.rule === "header-recommended-length"));
+  assertEquals(
+    result.find((d) => d.rule === "header-recommended-length")!.severity,
+    "warning",
+  );
+});
+
+Deno.test("validateHeader: header over 72 chars warns once, not twice", () => {
+  const long = "feat(auth): A" + "a".repeat(70);
+  const result = validateHeader(long);
+
+  assert(!result.some((d) => d.rule === "header-recommended-length"));
+});
+
+Deno.test("validateHeader: lowercase subject produces warning", () => {
+  const result = validateHeader("feat(auth): add passkey registration");
+
+  assert(result.some((d) => d.rule === "subject-capitalized"));
+  assertEquals(
+    result.find((d) => d.rule === "subject-capitalized")!.severity,
+    "warning",
+  );
+});
+
+Deno.test("validateHeader: code identifier subject skips capitalization warning", () => {
+  const result = validateHeader("refactor(parser): parseCommit now returns Result");
+
+  assert(!result.some((d) => d.rule === "subject-capitalized"));
+});
+
+Deno.test("validateHeader: third-person subject produces warning", () => {
+  const result = validateHeader("feat(auth): Adds login flow");
+
+  assert(result.some((d) => d.rule === "subject-imperative"));
+});
+
+Deno.test("validateHeader: imperative verb ending in -ed is accepted", () => {
+  const result = validateHeader("perf(parser): Speed up trailer extraction");
+
+  assert(!result.some((d) => d.rule === "subject-imperative"));
 });
 
 Deno.test("validateHeader: invalid format produces error", () => {
@@ -60,7 +106,7 @@ Deno.test("validateHeader: gerund subject produces warning", () => {
 });
 
 Deno.test("validateHeader: breaking change marker is valid", () => {
-  const result = validateHeader("feat(api)!: change response format");
+  const result = validateHeader("feat(api)!: Change response format");
   assertEquals(result.length, 0);
 });
 
@@ -206,13 +252,42 @@ Deno.test("validateTrailers: valid Context JSON is accepted", () => {
 Deno.test("validateBody: non-empty body produces no diagnostics", () => {
   const result = validateBody(
     "Implement WebAuthn registration flow.",
-    "feat(auth): add passkey registration",
+    "feat(auth): Add passkey registration",
   );
   assertEquals(result.length, 0);
 });
 
+Deno.test("validateBody: line over 72 chars produces wrap warning", () => {
+  const result = validateBody(
+    "Implement the WebAuthn registration flow for non-human identity types today.",
+    "feat(auth): Add passkey registration",
+  );
+
+  assert(result.some((d) => d.rule === "body-wrap"));
+  assertEquals(result.find((d) => d.rule === "body-wrap")!.severity, "warning");
+});
+
+Deno.test("validateBody: unbreakable single-token line is exempt from wrap", () => {
+  const result = validateBody(
+    `See the design note:\nhttps://example.com/${"a".repeat(80)}`,
+    "feat(auth): Add passkey registration",
+  );
+
+  assert(!result.some((d) => d.rule === "body-wrap"));
+});
+
+Deno.test("validateBody: fenced code block is exempt from wrap", () => {
+  const result = validateBody(
+    "Run this:\n\n```\n" + "deno task validate --input " + "x".repeat(60) +
+      "\n```",
+    "feat(auth): Add passkey registration",
+  );
+
+  assert(!result.some((d) => d.rule === "body-wrap"));
+});
+
 Deno.test("validateBody: empty body for feat produces warning", () => {
-  const result = validateBody("", "feat(auth): add passkey registration");
+  const result = validateBody("", "feat(auth): Add passkey registration");
 
   assert(result.some((d) => d.rule === "body-present"));
   assertEquals(result.find((d) => d.rule === "body-present")!.severity, "warning");
@@ -238,9 +313,9 @@ Deno.test("validateBody: empty body for build is acceptable", () => {
 // ---------------------------------------------------------------------------
 
 Deno.test("validate: fully valid commit produces no diagnostics", () => {
-  const msg = `feat(auth): add passkey registration for agent identities
+  const msg = `feat(auth): Add passkey registration for agents
 
-Implement WebAuthn registration flow supporting non-human identity types.
+Implement WebAuthn registration for non-human identity types.
 
 Intent: enable-capability
 Scope: auth/registration, identity/agent
@@ -248,8 +323,37 @@ Decided-Against: OAuth2 client credentials (no hardware binding guarantee)
 Session: 2025-02-08/passkey-lib`;
 
   const result = validate(msg);
-  const errors = result.filter((d) => d.severity === "error");
-  assertEquals(errors.length, 0);
+  assertEquals(result.length, 0);
+});
+
+Deno.test("validate: missing blank line after subject produces error", () => {
+  const msg = `feat(auth): Add passkey registration
+Implement WebAuthn registration for non-human identity types.
+
+Intent: enable-capability
+Scope: auth/registration`;
+
+  const result = validate(msg);
+
+  assert(result.some((d) => d.rule === "subject-blank-line"));
+  assertEquals(
+    result.find((d) => d.rule === "subject-blank-line")!.severity,
+    "error",
+  );
+});
+
+Deno.test("validate: trailers may exceed the body wrap limit", () => {
+  const msg = `fix(api): Prevent duplicate webhook delivery
+
+Retry scheduler and delivery confirmation raced inside the timeout.
+
+Intent: fix-defect
+Scope: api/webhooks
+Decided-Against: idempotency key at the receiver (shifts burden to every consumer)`;
+
+  const result = validate(msg);
+
+  assert(!result.some((d) => d.rule === "body-wrap"));
 });
 
 Deno.test("validate: empty message produces header-format error", () => {
@@ -310,7 +414,7 @@ Scope: backend`;
 });
 
 Deno.test("validate: minimal valid commit (trivial type)", () => {
-  const msg = `chore: update lockfile
+  const msg = `chore: Update lockfile
 
 Intent: configure-infra
 Scope: infra/dependencies`;

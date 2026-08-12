@@ -68,11 +68,11 @@ git config commit.template path/to/templates/.gitmessage
 A structured commit has three parts: header, body, and trailers.
 
 ```
-feat(auth): add passkey registration for AI agent identities
+feat(auth): Add passkey registration for agents
 
-Implement WebAuthn registration flow supporting non-human identity types.
-Agent identities use deterministic key derivation instead of user gestures,
-enabling automated credential provisioning during agent onboarding.
+Implement WebAuthn registration for non-human identity types. Agent
+identities derive keys deterministically instead of prompting for a
+user gesture, so credentials can be provisioned during onboarding.
 
 Intent: enable-capability
 Scope: auth/registration, identity/agent
@@ -88,11 +88,13 @@ Walk through each part:
 <type>(<scope>): <subject>
 ```
 
-The type comes from Conventional Commits: `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `build`, `ci`, `chore`, or `revert`. The parenthetical scope is the narrowest module or area affected. The subject uses imperative mood ("add", not "added") and fits within 72 characters total.
+The type comes from Conventional Commits: `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `build`, `ci`, `chore`, or `revert`. The parenthetical scope is the narrowest module or area affected.
+
+The subject is capitalized, uses imperative mood ("Add", not "Added" or "Adds"), and carries no trailing period. It must complete the sentence "If applied, this commit will ___". Aim for 50 characters across the whole header line, prefix included; 72 is the hard ceiling. A subject that will not fit in 50 usually belongs to two commits.
 
 ### The Body
 
-Explain what changed and why. Not how - the diff shows how. Wrap at 72 characters. For exploratory work, include results and conclusions. For bug fixes, describe the root cause.
+Explain what changed and why. Not how - the diff shows how. Hard-wrap every line at 72 characters, because git does not wrap the body for you. For exploratory work, include results and conclusions. For bug fixes, describe the root cause.
 
 ### The Trailers
 
@@ -483,9 +485,10 @@ If your project needs different intents, additional trailers, or looser validati
 ### Commit Format
 
 ```
-<type>(<scope>): <subject>          72 chars max, imperative mood
+<type>(<scope>): <Subject>          50 target, 72 max, capitalized,
+                                     imperative, no trailing period
 
-<body>                               What and why, wrapped at 72 chars
+<body>                               What and why, hard-wrapped at 72
 
 Intent: <intent-type>                REQUIRED
 Scope: <domain/module>[, ...]        REQUIRED

@@ -24,11 +24,11 @@ feat: add user authentication
 To a structured commit:
 
 ```
-feat(auth): add passkey registration for AI agent identities
+feat(auth): Add passkey registration for agents
 
-Implement WebAuthn registration flow supporting non-human identity types.
-Agent identities use deterministic key derivation instead of user gestures,
-enabling automated credential provisioning during agent onboarding.
+Implement WebAuthn registration for non-human identity types. Agent
+identities derive keys deterministically instead of prompting for a
+user gesture, so credentials can be provisioned during onboarding.
 
 Intent: enable-capability
 Scope: auth/registration, identity/agent

@@ -23,17 +23,77 @@ const SESSION_RE = /^\d{4}-\d{2}-\d{2}\/.+$/;
 const TRAILER_RE = /^([A-Za-z][A-Za-z-]*)\s*:\s*(.+)$/;
 
 // ---------------------------------------------------------------------------
+// Limits
+// ---------------------------------------------------------------------------
+
+/** Recommended header length (Chris Beams rule 2, adjusted for the type prefix). */
+const HEADER_SOFT_LIMIT = 50;
+
+/** Hard header ceiling - git tooling truncates beyond this. */
+const HEADER_HARD_LIMIT = 72;
+
+/** Body wrap column (Chris Beams rule 6). */
+const BODY_WRAP_LIMIT = 72;
+
+/**
+ * First words that are third-person indicative, not imperative.
+ * "Adds login" describes; "Add login" commands.
+ */
+const NON_IMPERATIVE_WORDS = new Set([
+  "adds",
+  "allows",
+  "changes",
+  "creates",
+  "deletes",
+  "enables",
+  "fixes",
+  "implements",
+  "improves",
+  "makes",
+  "moves",
+  "prevents",
+  "removes",
+  "renames",
+  "supports",
+  "updates",
+]);
+
+/** Imperative verbs that end in -ed or -ing and would trip the suffix heuristic. */
+const IMPERATIVE_EXCEPTIONS = new Set([
+  "bring",
+  "embed",
+  "feed",
+  "need",
+  "seed",
+  "shed",
+  "speed",
+  "spread",
+  "string",
+]);
+
+/** Subjects that legitimately start lowercase: code identifiers and flags. */
+const CODE_LIKE_FIRST_WORD = /^`|[A-Z_./()]/;
+
+// ---------------------------------------------------------------------------
 // Header Validation
 // ---------------------------------------------------------------------------
 
 export const validateHeader = (header: string): readonly Diagnostic[] => {
   const diagnostics: Diagnostic[] = [];
 
-  if (header.length > 72) {
+  if (header.length > HEADER_HARD_LIMIT) {
     diagnostics.push({
       severity: "error",
       rule: "header-max-length",
-      message: `Header is ${header.length} chars (max 72): "${header.slice(0, 40)}..."`,
+      message:
+        `Header is ${header.length} chars (max ${HEADER_HARD_LIMIT}): "${header.slice(0, 40)}..."`,
+    });
+  } else if (header.length > HEADER_SOFT_LIMIT) {
+    diagnostics.push({
+      severity: "warning",
+      rule: "header-recommended-length",
+      message:
+        `Header is ${header.length} chars (recommended max ${HEADER_SOFT_LIMIT}) - tighten the subject`,
     });
   }
 
@@ -57,13 +117,28 @@ export const validateHeader = (header: string): readonly Diagnostic[] => {
     });
   }
 
+  const firstWord = subject.split(/\s+/)[0] ?? "";
+
+  // Capitalized subject, unless the first word is a code identifier or flag
+  if (/^[a-z]/.test(subject) && !CODE_LIKE_FIRST_WORD.test(firstWord)) {
+    diagnostics.push({
+      severity: "warning",
+      rule: "subject-capitalized",
+      message:
+        `Subject should start with a capital letter: "${firstWord}" - use "Add" not "add"`,
+    });
+  }
+
   // Heuristic: imperative mood check
-  const firstWord = subject.split(" ")[0].toLowerCase();
-  if (firstWord.endsWith("ed") || firstWord.endsWith("ing")) {
+  const lowerFirst = firstWord.toLowerCase();
+  const suffixSuspect = (lowerFirst.endsWith("ed") || lowerFirst.endsWith("ing")) &&
+    !IMPERATIVE_EXCEPTIONS.has(lowerFirst);
+  if (suffixSuspect || NON_IMPERATIVE_WORDS.has(lowerFirst)) {
     diagnostics.push({
       severity: "warning",
       rule: "subject-imperative",
-      message: `Subject may not be imperative mood: "${firstWord}" - use "add" not "added"/"adding"`,
+      message:
+        `Subject may not be imperative mood: "${lowerFirst}" - use "add" not "added"/"adding"/"adds"`,
     });
   }
 
@@ -194,9 +269,46 @@ export const validateBody = (
         message: "Body is empty - explain what changed and why",
       });
     }
+    return diagnostics;
+  }
+
+  const overflow = findOverflowingLines(body.split("\n"));
+  if (overflow.length > 0) {
+    const [first] = overflow;
+    diagnostics.push({
+      severity: "warning",
+      rule: "body-wrap",
+      message:
+        `${overflow.length} body line(s) exceed ${BODY_WRAP_LIMIT} chars (first: line ${first.line}, ${first.length} chars) - wrap the body at ${BODY_WRAP_LIMIT}`,
+    });
   }
 
   return diagnostics;
+};
+
+/**
+ * Body lines longer than the wrap limit. Fenced code blocks and single-token
+ * lines (long URLs, file paths) are exempt because they cannot be wrapped.
+ */
+const findOverflowingLines = (
+  lines: readonly string[],
+): readonly { line: number; length: number }[] => {
+  const overflow: { line: number; length: number }[] = [];
+  let inFence = false;
+
+  lines.forEach((line, index) => {
+    if (line.trimStart().startsWith("```")) {
+      inFence = !inFence;
+      return;
+    }
+    if (inFence) return;
+    if (line.length <= BODY_WRAP_LIMIT) return;
+    if (!line.trim().includes(" ")) return;
+
+    overflow.push({ line: index + 1, length: line.length });
+  });
+
+  return overflow;
 };
 
 // ---------------------------------------------------------------------------
@@ -260,6 +372,15 @@ export const validate = (message: string): readonly Diagnostic[] => {
 
   const header = lines[0];
 
+  const subjectBlankLine: Diagnostic[] =
+    lines.length > 1 && lines[1].trim() !== ""
+      ? [{
+        severity: "error",
+        rule: "subject-blank-line",
+        message: "Subject must be followed by a blank line",
+      }]
+      : [];
+
   const { trailerStart, diagnostics: trailerBlockDiagnostics } =
     findTrailerBlock(lines);
 
@@ -269,6 +390,7 @@ export const validate = (message: string): readonly Diagnostic[] => {
 
   return [
     ...validateHeader(header),
+    ...subjectBlankLine,
     ...validateBody(body, header),
     ...trailerBlockDiagnostics,
     ...validateTrailers(trailerLines),

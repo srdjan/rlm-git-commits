@@ -18,6 +18,17 @@ OUTPUT RULES:
 - No markdown fences, no explanations, no preamble
 - Follow the format specification exactly
 
+SUBJECT RULES:
+- Capitalize the first word after the colon, keep type and scope lowercase
+- Imperative mood: "Add", never "Added", "Adding", or "Adds"
+- No trailing period
+- Target 50 characters for the whole header line, never exceed 72
+
+BODY RULES:
+- One blank line between the subject and the body
+- Hard-wrap every body line at 72 characters
+- Explain what changed and why, never how
+
 FORMAT SPECIFICATION:
 ${formatSpec}
 
@@ -28,11 +39,11 @@ EXAMPLES:
 
 Example 1 - Feature commit:
 
-feat(auth): add passkey registration for agent identities
+feat(auth): Add passkey registration for agents
 
-Implement WebAuthn registration flow supporting non-human identity types.
-Hardware-bound credentials provide stronger guarantees than shared secrets
-for autonomous agent authentication.
+Implement WebAuthn registration for non-human identity types.
+Hardware-bound credentials give stronger guarantees than shared
+secrets for autonomous agent authentication.
 
 Intent: enable-capability
 Scope: auth/registration, identity/agent
@@ -40,17 +51,17 @@ Decided-Against: OAuth2 client credentials (no hardware binding guarantee)
 
 Example 2 - Bug fix:
 
-fix(orders): correct timezone offset in schedule calculations
+fix(orders): Correct schedule timezone offset
 
-Schedule windows were computed in UTC but displayed in local time without
-conversion, causing orders to appear in the wrong delivery slot.
+Schedule windows were computed in UTC but displayed in local time
+without conversion, so orders appeared in the wrong delivery slot.
 
 Intent: fix-defect
 Scope: orders/scheduling
 
 Example 3 - Infrastructure:
 
-chore: update Deno to 2.1 and adjust deprecated API calls
+chore: Update Deno to 2.1
 
 Intent: configure-infra
 Scope: infra/runtime`;

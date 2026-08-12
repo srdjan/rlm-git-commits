@@ -32,9 +32,9 @@ Read the full specification: `references/commit-format.md`
 ### Quick Reference
 
 ```
-<type>(<scope>): <subject>          ← 72 chars max, imperative mood
+<type>(<scope>): <Subject>          ← 50 target, 72 max, capitalized
 
-<body>                               ← What and why, wrapped at 72 chars
+<body>                               ← What and why, hard-wrapped at 72
 
 Intent: <intent-type>                ← REQUIRED — from controlled vocabulary
 Scope: <domain/module>[, ...]        ← REQUIRED — affected areas
@@ -43,6 +43,9 @@ Session: <session-id>                ← Optional — groups related commits
 Refs: <commit|issue|doc>[, ...]      ← Optional — related artifacts
 Context: <compact-json>             ← Optional — rich structured metadata
 ```
+
+Blank lines around the body are mandatory. Trailers are exempt from the
+72-column wrap; body text is not.
 
 ### Intent Taxonomy (Controlled Vocabulary)
 
@@ -87,10 +90,15 @@ When given a diff (or after making changes), follow this process:
    `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `build`, `ci`, `chore`
 2. **Identify the narrowest scope** — What module or domain boundary does this
    touch? Use the parenthetical scope in the subject line.
-3. **Write the subject in imperative mood** — "add", "fix", "extract", not
-   "added", "fixes", "extracted". Max 72 characters including type and scope.
+3. **Write the subject in imperative mood** — "Add", "Fix", "Extract", not
+   "Added", "Fixes", "Extracted". It must complete the sentence "If applied,
+   this commit will ___". Capitalize the first word after the colon; leave the
+   type and scope lowercase. No trailing period. Aim for 50 characters
+   including `type(scope): `, and never exceed 72. A subject that will not fit
+   is usually a commit that should be split.
 4. **Write the body** — Explain *what* changed and *why*. Not *how* — the diff
-   shows how. Wrap at 72 characters.
+   shows how. Hard-wrap every line at 72 characters, and leave one blank line
+   between the subject and the body.
 5. **Select the Intent** — From the controlled vocabulary. If uncertain between
    two, choose the one that describes the *motivation*, not the *mechanism*.
 6. **List the Scope** — Domain paths affected. Be specific enough for filtering
@@ -176,11 +184,11 @@ deno task parse --session=2025-02-08/passkey-lib --decisions-only
 ### Simple Feature
 
 ```
-feat(auth): add passkey registration for AI agent identities
+feat(auth): Add passkey registration for agents
 
-Implement WebAuthn registration flow supporting non-human identity types.
-Agent identities use deterministic key derivation instead of user gestures,
-enabling automated credential provisioning during agent onboarding.
+Implement WebAuthn registration for non-human identity types. Agent
+identities derive keys deterministically instead of prompting for a
+user gesture, so credentials can be provisioned during onboarding.
 
 Intent: enable-capability
 Scope: auth/registration, identity/agent
@@ -191,11 +199,11 @@ Session: 2025-02-08/passkey-lib
 ### Bug Fix with Decision Context
 
 ```
-fix(api): prevent duplicate webhook delivery on retry timeout
+fix(api): Prevent duplicate webhook delivery
 
-Race condition between retry scheduler and delivery confirmation caused
-duplicate POST requests when upstream responded between 28-30 seconds
-(inside the timeout window but after retry was already queued).
+Race between the retry scheduler and delivery confirmation sent a
+second POST when upstream answered between 28 and 30 seconds - inside
+the timeout window but after the retry was already queued.
 
 Intent: fix-defect
 Scope: api/webhooks, infra/scheduler
@@ -207,12 +215,11 @@ Refs: #1847, abc123f
 ### Architectural Refactor
 
 ```
-refactor(orders): extract pricing engine from order aggregate
+refactor(orders): Extract pricing engine
 
-Pricing logic was embedded in the Order aggregate root, making it
-impossible to test pricing rules independently or reuse them in the
-quote flow. Extract to a standalone PricingEngine module with pure
-function interface.
+Pricing logic lived inside the Order aggregate root, so pricing rules
+could not be tested on their own or reused by the quote flow. Extract
+them into a standalone PricingEngine with a pure function interface.
 
 Intent: restructure
 Scope: orders/pricing, orders/aggregate, quotes/pricing
@@ -224,12 +231,12 @@ Session: 2025-02-08/order-decomposition
 ### Exploratory Spike
 
 ```
-feat(search): prototype vector similarity search with pgvector
+feat(search): Prototype pgvector similarity search
 
-Spike to validate whether pgvector can handle our embedding dimensions
-(1536) at current document scale (~2M rows) with acceptable p99 latency.
-Results: p99 = 45ms with HNSW index, acceptable for async enrichment
-but not for synchronous search path.
+Validate whether pgvector handles our 1536-dimension embeddings at
+current scale (~2M rows) with acceptable p99 latency. Result: p99 is
+45ms with an HNSW index - fast enough for async enrichment, too slow
+for the synchronous search path.
 
 Intent: explore
 Scope: search/vector, infra/postgres
@@ -242,11 +249,11 @@ Session: 2025-02-07/vector-search-spike
 ### Infrastructure Configuration
 
 ```
-build(ci): add parallel test execution with Deno workspaces
+build(ci): Run workspace tests in parallel
 
-Configure CI pipeline to run workspace tests in parallel using Deno's
-built-in workspace support. Reduces CI time from ~8min to ~3min by
-running independent workspace tests concurrently.
+Deno workspaces can run independent workspace tests concurrently, so
+configure the CI pipeline to use that instead of a serial run. Wall
+time drops from about 8 minutes to about 3.
 
 Intent: configure-infra
 Scope: ci/pipeline, build/workspaces
@@ -259,6 +266,12 @@ Decided-Against: custom test orchestrator script (unnecessary given native suppo
   file paths (`src/modules/auth/handlers/register.ts`).
 - **Multiple intents per commit** — If you need two intents, split the commit.
 - **Empty body** — The subject line is not enough. Agents need the *why*.
+- **Subject that lists** — "Add X and fix Y" is two commits wearing one hat.
+  A comma or an "and" in the subject is a split signal.
+- **Unwrapped body** — Your editor soft-wraps; git does not. Hard-wrap at 72
+  or the message becomes one long line in every terminal that reads it.
+- **Body that narrates the diff** — "Changed line 42 to use map()" is *how*.
+  The diff already says that. Write the reason the change exists.
 - **`Context` as a dumping ground** — Only use for genuinely structured data
   that other trailers can't express. If you're putting prose in `Context`,
   it belongs in the body.

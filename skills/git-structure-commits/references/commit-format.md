@@ -1,5 +1,10 @@
 # Commit Format Specification
 
+This format is Conventional Commits plus typed trailers, written to the seven
+rules of a great commit message (Chris Beams, <https://cbea.ms/git-commit/>).
+See "The Seven Rules" at the end for the rule-by-rule mapping and the one
+deliberate divergence.
+
 ## Structure
 
 A structured commit message has three sections separated by blank lines:
@@ -14,8 +19,8 @@ A structured commit message has three sections separated by blank lines:
 
 All three sections are strongly recommended. For truly minimal changes
 (typo fixes, single-line config changes), body may be omitted but trailers
-are always required. The blank line between body and trailers is mandatory
-and enforced by the validator.
+are always required. Both blank lines - after the header and before the
+trailers - are mandatory and enforced by the validator.
 
 ---
 
@@ -53,22 +58,36 @@ names matching your project's module structure.
 
 ### Subject
 
-- Imperative mood: "add", not "added" or "adds"
+- Imperative mood: "Add", not "Added", "Adding", or "Adds". The subject
+  must complete the sentence "If applied, this commit will ___"
+- Capitalized first letter after the colon: `feat(auth): Add passkey login`.
+  The one exception is a subject that opens with a code identifier or flag
+  (`parseCommit`, `--apply`), where the source spelling wins
 - No period at the end
-- Maximum 72 characters for the entire header line
-- Lowercase first letter after the colon
-- Should complete the sentence: "If applied, this commit will ___"
+- 50 characters for the entire header line, including `type(scope): `.
+  The validator warns above 50 and rejects above 72
+- One line. If the subject needs a comma or "and", split the commit
+
+The 50-character target is tight once the type prefix is spent, and that is
+the point: a subject that does not fit is usually a commit that should be
+split. Use the body for everything the subject cannot hold.
 
 ---
 
 ## Body
 
-- Explain WHAT changed and WHY - not HOW (the diff shows how)
-- Wrap lines at 72-80 characters for terminal readability
+- Explain WHAT changed and WHY - not HOW (the diff shows how). Describe the
+  behavior before the change, the behavior after, and the reason for it
+- Hard-wrap every line at 72 characters. Git does not wrap body text, and it
+  indents the message by 4 columns in `git log`
 - Use present tense
 - May include bullet points for multi-aspect changes (use `-` prefix)
 - Separate multiple paragraphs with blank lines
 - For spikes/explorations, include results and conclusions
+
+Two exemptions from the 72-column wrap: fenced code blocks, and lines made of
+a single unbreakable token such as a long URL or file path. Trailers are also
+exempt - a `Decided-Against` or `Context` value may run past 72.
 
 ---
 
@@ -128,7 +147,7 @@ accepts comma-separated values using domain vocabulary.
 
 When they align (single-domain change):
 ```
-feat(auth): add passkey registration
+feat(auth): Add passkey registration
 
 Intent: enable-capability
 Scope: auth/registration
@@ -136,7 +155,7 @@ Scope: auth/registration
 
 When they diverge (cross-cutting change):
 ```
-refactor(orders): extract pricing engine from order aggregate
+refactor(orders): Extract pricing engine
 
 Intent: restructure
 Scope: orders/pricing, orders/aggregate, quotes/pricing
@@ -265,14 +284,51 @@ Required trailers first, then decision context, then metadata.
 
 A well-formed structured commit satisfies:
 
-1. Header matches `^(feat|fix|refactor|perf|docs|test|build|ci|chore|revert)(\(.+\))?: .+$`
-2. Header length ≤ 72 characters
-3. Body strongly recommended (may be omitted for trivial changes)
-4. Blank line separates body from trailers (mandatory)
-5. `Intent:` trailer present with valid taxonomy value
-6. `Scope:` trailer present with at least one `domain/module` path
-7. Scope entries use `domain/module` format (warning if no `/`)
-8. No more than 3 scope entries (split signal)
-9. Subject line uses imperative mood (heuristic: no `-ed`, `-ing` suffixes)
-10. `Context:` value is valid JSON if present
-11. `Session:` matches `\d{4}-\d{2}-\d{2}/.+` if present
+| Rule | Severity |
+|------|----------|
+| Header matches `^(feat\|fix\|refactor\|perf\|docs\|test\|build\|ci\|chore\|revert)(\(.+\))?!?: .+$` | error |
+| Header length ≤ 72 characters | error |
+| Header length ≤ 50 characters | warning |
+| Blank line separates subject from body | error |
+| Blank line separates body from trailers | error |
+| `Intent:` trailer present, exactly one, valid taxonomy value | error |
+| `Scope:` trailer present with at least one path | error |
+| `Context:` value is valid JSON if present | error |
+| Subject starts with a capital letter (code identifiers exempt) | warning |
+| Subject uses imperative mood (no `-ed`, `-ing`, or third-person `-s`) | warning |
+| Subject does not end with a period | warning |
+| Body present (waived for `chore`, `ci`, `build`) | warning |
+| Body lines ≤ 72 characters (code fences and single tokens exempt) | warning |
+| Scope entries use `domain/module` format | warning |
+| No more than 3 scope entries (split signal) | warning |
+| `Session:` matches `\d{4}-\d{2}-\d{2}/.+` if present | warning |
+
+Run `deno task validate` to check a message against these rules.
+
+---
+
+## The Seven Rules
+
+This format implements Chris Beams' seven rules
+(<https://cbea.ms/git-commit/>):
+
+| Rule | How this format applies it |
+|------|----------------------------|
+| 1. Separate subject from body with a blank line | Mandatory, enforced as an error |
+| 2. Limit the subject line to 50 characters | Warning above 50, error above 72, measured across the whole header including `type(scope): ` |
+| 3. Capitalize the subject line | The subject after the colon is capitalized; the type and scope stay lowercase |
+| 4. Do not end the subject line with a period | Enforced as a warning |
+| 5. Use the imperative mood in the subject line | Enforced by heuristic on the first word |
+| 6. Wrap the body at 72 characters | Enforced as a warning, with code fences, single tokens, and trailers exempt |
+| 7. Use the body to explain what and why vs. how | The body carries what and why; `Intent:` and `Decided-Against:` carry the why in queryable form |
+
+**The one divergence:** rule 3 asks for a capitalized subject line, and
+Conventional Commits requires a lowercase type token. This format keeps
+both - `feat(auth): Add passkey login` - because the machine-readable
+prefix and the human-readable sentence serve different readers. Capitalize
+the sentence, not the prefix.
+
+Rule 2's 50-character budget is measured across the whole header, prefix
+included, so `type(scope): ` spends part of it. That is deliberate: the
+prefix is what a reader scans in `git log --oneline`, so it counts against
+the same line-width budget the rule exists to protect.

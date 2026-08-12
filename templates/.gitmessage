@@ -1,4 +1,4 @@
-# <type>(<scope>): <subject>
+# <type>(<scope>): <Subject>
 #
 # [body - explain WHAT changed and WHY, not HOW]
 #
@@ -24,8 +24,11 @@
 # feat, fix, refactor, perf, docs, test, build, ci, chore, revert
 #
 # --- Rules ---
-# Header: max 72 chars, imperative mood ("add" not "added")
-# Body: wrap at 72-80 chars, explain what and why
+# Subject: capitalized, imperative ("Add" not "Added"/"Adds"), no period
+#          50 chars including the type prefix, 72 is the hard limit
+#          completes "If applied, this commit will ___"
+# Body: blank line after the subject, hard-wrap at 72 chars
+#       explain what changed and why, not how
 # Trailers: blank line before trailers, Intent and Scope required
 # Scope format: domain/module (e.g., auth/session, api/webhooks)
 # Decided-Against: format as "approach (reason)" - highest-value trailer
